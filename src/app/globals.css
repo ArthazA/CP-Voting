@@ -641,3 +641,108 @@ html:has(.rv-shell), body:has(.rv-shell) { background:#070305; }
 @keyframes rv-rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
 @keyframes rv-pop { from { opacity:0; transform:scale(.85); } to { opacity:1; transform:none; } }
 @media (prefers-reduced-motion: reduce) { .rv-card,.rv-badge,.rv-end { animation:none; } }
+
+/* Guest phone: a little burst for every reaction tap */
+.sti-react { position:relative; }
+.sti-bursts { position:absolute; inset:-120px 0 40px; pointer-events:none; overflow:hidden; }
+.sti-bursts span { position:absolute; bottom:0; font-size:26px; animation:sti-burst 1.2s ease-out forwards; }
+@keyframes sti-burst { from { transform:translateY(0) scale(.8); opacity:1; } to { transform:translateY(-110px) scale(1.25); opacity:0; } }
+
+/* ===== Scare to Impress · live catwalk big screen (/live) ===== */
+html:has(.lv-shell), body:has(.lv-shell) { background:#000; }
+.lv-shell { --lv-green:#8cff66; --lv-orange:#ff9a1f; position:relative; height:100vh; height:100dvh; overflow:hidden; background:#070305; color:var(--lv-green); font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; }
+.lv-shell.lv-quiet { cursor:none; }
+.lv-video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#070305; }
+.lv-video.mirror { transform:scaleX(-1); }
+.lv-nocam { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; text-align:center; background:radial-gradient(ellipse at center,#1d0846,#070305 70%); }
+.lv-nocam b { font-size:clamp(28px,3vw,56px); }
+.lv-nocam span { font-size:clamp(14px,1.3vw,24px); color:#c9f7b6; max-width:60vw; }
+.lv-fade-top,.lv-fade-bottom { position:absolute; left:0; right:0; pointer-events:none; }
+.lv-fade-top { top:0; height:24vh; background:linear-gradient(#070305e6,transparent); }
+.lv-fade-bottom { bottom:0; height:46vh; background:linear-gradient(transparent,#070305f2 70%); }
+.lv-top { position:absolute; top:3.5vh; left:3vw; right:3vw; display:flex; justify-content:space-between; align-items:flex-start; }
+.lv-brand { color:var(--lv-orange); font-size:clamp(20px,2.3vw,44px); line-height:1; text-shadow:0 2px 12px #000a; }
+.lv-brand i,.lv-name i,.lv-shell .lv-ticker i { font-family:"Pinyon Script",cursive; font-style:normal; font-weight:400; }
+.lv-brand i { font-size:1.35em; }
+.lv-top-right { display:flex; align-items:flex-start; gap:1.4vw; }
+.lv-live { display:inline-flex; align-items:center; gap:8px; padding:8px 16px; border-radius:999px; background:#d9262688; border:1px solid #ff5a5a; color:#fff; font-size:clamp(12px,1vw,18px); font-weight:700; letter-spacing:.14em; }
+.lv-live i { width:10px; height:10px; border-radius:50%; background:#ff4d4d; animation:lv-blink 1.2s steps(2,start) infinite; }
+.lv-qr { display:flex; align-items:center; gap:12px; padding:10px; border-radius:16px; background:#070305cc; border:1px solid #ff9a1f88; }
+.lv-qr img { width:clamp(84px,8vw,160px); height:auto; border-radius:8px; background:#fff; }
+.lv-qr span { font-size:clamp(12px,1vw,18px); line-height:1.4; }
+.lv-qr b { color:var(--lv-orange); }
+.lv-floats { position:absolute; right:3vw; bottom:22vh; width:22vw; height:62vh; pointer-events:none; }
+.lv-floats span { position:absolute; bottom:0; line-height:1; animation:lv-float linear forwards; filter:drop-shadow(0 4px 10px #0008); }
+@keyframes lv-float { 0% { transform:translate(0,0) scale(.6); opacity:0; } 10% { opacity:1; transform:translate(calc(var(--drift)*.1),-6vh) scale(1); } 100% { transform:translate(var(--drift),-62vh) scale(1.1); opacity:0; } }
+.lv-lower { position:absolute; left:3vw; right:3vw; bottom:11vh; display:flex; justify-content:space-between; align-items:flex-end; gap:3vw; }
+.lv-now { display:flex; flex-direction:column; gap:.6vh; min-width:0; }
+.lv-tags { display:flex; gap:10px; margin-bottom:.6vh; }
+.lv-slot,.lv-group,.lv-cat { padding:4px 12px; border-radius:8px; font-size:clamp(13px,1.15vw,22px); font-weight:700; letter-spacing:.08em; }
+.lv-slot { background:var(--lv-orange); color:#070305; }
+.lv-group { border:1px solid var(--lv-orange); color:var(--lv-orange); letter-spacing:.14em; }
+.lv-cat { border:1px solid var(--lv-green); text-transform:uppercase; letter-spacing:.12em; }
+.lv-name { font-size:clamp(22px,2.4vw,46px); text-shadow:0 2px 12px #000c; }
+.lv-name i { font-size:1.15em; }
+.lv-costume { font-size:clamp(36px,4.6vw,90px); font-weight:700; line-height:1.02; text-shadow:0 2px 16px #000c; overflow-wrap:anywhere; }
+.lv-side { flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; gap:1.4vh; }
+.lv-tally { display:flex; gap:1vw; padding:8px 14px; border-radius:999px; background:#070305cc; border:1px solid #ffffff22; }
+.lv-tally span { display:inline-flex; align-items:center; gap:6px; font-size:clamp(16px,1.4vw,28px); }
+.lv-tally b { min-width:2ch; color:#fff; font-variant-numeric:tabular-nums; }
+.lv-timer { min-width:9vw; padding:1.2vh 1.4vw; display:flex; flex-direction:column; align-items:center; border-radius:20px; background:#1a0b3ad9; border:1px solid #966eff73; color:var(--lv-orange); }
+.lv-timer small { font-size:clamp(11px,.9vw,16px); letter-spacing:.14em; }
+.lv-timer b { font-size:clamp(40px,4.4vw,86px); line-height:1; font-variant-numeric:tabular-nums; }
+.lv-timer.urgent { background:var(--lv-orange); border-color:var(--lv-orange); color:#120904; }
+.lv-ticker { position:absolute; left:0; right:0; bottom:0; height:7vh; display:flex; align-items:stretch; border-top:1px solid #ff9a1f99; background:#1a0b3ae6; }
+.lv-ticker-label { flex-shrink:0; display:flex; align-items:center; padding:0 2vw; background:var(--lv-orange); color:#120904; font-size:clamp(13px,1.2vw,22px); font-weight:700; letter-spacing:.1em; }
+.lv-ticker-window { flex:1; min-width:0; overflow:hidden; display:flex; align-items:center; }
+.lv-ticker-track { display:flex; width:max-content; animation:lv-tick 30s linear infinite; }
+.lv-ticker-set { display:flex; flex-shrink:0; }
+.lv-ticker-set > span { display:inline-flex; align-items:baseline; gap:10px; padding-left:2vw; white-space:nowrap; font-size:clamp(15px,1.5vw,28px); }
+.lv-ticker-set em { color:var(--lv-orange); font-style:normal; font-weight:700; }
+.lv-ticker-set b { font-weight:700; }
+.lv-sep { color:var(--lv-orange); padding-left:1vw; }
+.lv-ticker-empty { padding-left:2vw; font-size:clamp(15px,1.5vw,28px); }
+.lv-controls { position:absolute; top:4vh; left:50%; transform:translateX(-50%); display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:10px; max-width:80vw; padding:14px; border-radius:16px; background:#070305e6; border:1px solid #ffffff2a; transition:opacity .3s; }
+.lv-quiet .lv-controls { opacity:0; pointer-events:none; }
+.lv-controls select,.lv-controls button { padding:10px 16px; border-radius:999px; border:1px solid #2b4a22; background:#0f1a0c; color:var(--lv-green); font:inherit; font-size:15px; cursor:pointer; }
+.lv-error { color:var(--lv-orange); font-size:14px; }
+@keyframes lv-tick { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+@keyframes lv-blink { to { visibility:hidden; } }
+@media (prefers-reduced-motion: reduce) { .lv-ticker-track { animation:none; } }
+
+/* Host desk: walk order per category, winner reveal button */
+.planned-category { display:flex; flex-direction:column; gap:8px; }
+.planned-category + .planned-category { margin-top:18px; }
+.planned-category h3 { margin:0; font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#ffc56c; }
+.planned-category h3 small { color:#aaa4b5; letter-spacing:.06em; margin-left:6px; }
+.reveal-control { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,.08); }
+.reveal-control a { color:#ffc56c; font-size:13px; }
+.rv-controls button.live { border-color:#ff9a1f; color:#ff9a1f; }
+
+/* Winner reveal on phones (guests follow the host's reveal) */
+@media (max-width: 760px) {
+  .rv-shell { height:auto; min-height:100dvh; padding:20px 16px; gap:14px; overflow:visible; }
+  .rv-top { flex-direction:column; align-items:flex-start; gap:10px; }
+  .rv-progress { justify-content:flex-start; }
+  .rv-progress span { font-size:10px; padding:4px 8px; }
+  .rv-heading { flex-direction:column; align-items:flex-start; gap:4px; }
+  .rv-heading > div { flex-wrap:wrap; gap:8px; }
+  .rv-heading h1 { font-size:30px; }
+  .rv-heading em { font-size:30px; }
+  .rv-heading p { text-align:left; font-size:14px; }
+  .rv-lineup { grid-template-columns:1fr; grid-template-rows:none; grid-auto-rows:minmax(58px,auto); gap:8px; }
+  .rv-row { padding:10px 12px; gap:10px; }
+  .rv-row-name { font-size:15px; white-space:normal; }
+  .rv-row-score { width:76px; font-size:24px; }
+  .rv-row-score.top { font-size:16px; }
+  .rv-stage { grid-template-columns:1fr !important; gap:12px; }
+  .rv-card { padding:16px; gap:10px; }
+  .rv-card-name span { font-size:18px; }
+  .rv-card-name i { font-size:22px; }
+  .rv-card-name b { font-size:22px; }
+  .rv-big { font-size:46px; }
+  .rv-card.winner .rv-big { font-size:56px; }
+  .rv-end h1 { font-size:64px; }
+  .rv-end p { font-size:18px; }
+}
+.lv-reveal { position:absolute; inset:0; z-index:5; }
