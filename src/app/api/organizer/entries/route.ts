@@ -1,7 +1,7 @@
 import { isOrganizer } from "@/lib/organizer-auth";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase-admin";
+import { CATEGORY_LABELS, SLOT_LIMIT, categoryRank, isCategory } from "@/lib/event-config";
 
-const categories = ["Scariest", "Prettiest", "Funniest"] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
@@ -12,16 +12,32 @@ export async function POST(request: Request) {
     const contestantName = typeof body.contestantName === "string" ? body.contestantName.trim().slice(0, 60) : "";
     const costumeName = typeof body.costumeName === "string" ? body.costumeName.trim().slice(0, 60) : "";
     const category = body.category;
-    if (!contestantName || !costumeName || !categories.includes(category)) return Response.json({ error: "Enter a contestant name, costume name, and category." }, { status: 400 });
+    if (!contestantName || !costumeName || !isCategory(category)) return Response.json({ error: "Enter a contestant name, costume name, and category." }, { status: 400 });
+    const isGroup = category === "Group" || body.isGroup === true;
     const supabase = getSupabaseAdmin();
-    const [{ count: categoryCount, error: categoryCountError }, { data: lastPlannedEntry, error: plannedOrderError }] = await Promise.all([
-      supabase.from("costume_entries").select("id", { count: "exact", head: true }).eq("category", category),
-      supabase.from("costume_entries").select("planned_order").order("planned_order", { ascending: false }).limit(1).maybeSingle(),
-    ]);
-    if (categoryCountError || plannedOrderError) throw categoryCountError ?? plannedOrderError;
-    const { data, error } = await supabase.from("costume_entries").insert({ contestant_name: contestantName, display_name: costumeName, category, sort_order: categoryCount ?? 0, planned_order: (lastPlannedEntry?.planned_order ?? -1) + 1 }).select("id, contestant_name, display_name, category").single();
+    const { data: existing, error: existingError } = await supabase
+      .from("costume_entries")
+      .select("id, category")
+      .order("planned_order");
+    if (existingError) throw existingError;
+    const categoryCount = (existing ?? []).filter((entry) => entry.category === category).length;
+    if (categoryCount >= SLOT_LIMIT[category]) {
+      return Response.json({ error: `${CATEGORY_LABELS[category]} is full (${SLOT_LIMIT[category]} slots).` }, { status: 409 });
+    }
+
+    const { data, error } = await supabase.from("costume_entries").insert({ contestant_name: contestantName, display_name: costumeName, category, is_group: isGroup, sort_order: categoryCount, planned_order: existing?.length ?? 0 }).select("id, contestant_name, display_name, category, is_group").single();
     if (error) throw error;
-    return Response.json({ entry: { id: data.id, contestantName: data.contestant_name, costumeName: data.display_name, category: data.category } }, { status: 201 });
+
+    // Slot the new contestant in after the last one of the same category, keeping the walk order
+    // Funniest → Prettiest → Best Group → Scariest. Manual reorders within a category are kept.
+    const ids = (existing ?? []).map((entry) => entry.id);
+    let insertAt = 0;
+    (existing ?? []).forEach((entry, index) => { if (categoryRank(entry.category) <= categoryRank(category)) insertAt = index + 1; });
+    ids.splice(insertAt, 0, data.id);
+    const { error: orderError } = await supabase.rpc("reorder_costume_entries", { p_entry_ids: ids });
+    if (orderError) console.error("Could not place the new contestant in walk order", orderError);
+
+    return Response.json({ entry: { id: data.id, contestantName: data.contestant_name, costumeName: data.display_name, category: data.category, isGroup: data.is_group }, position: insertAt }, { status: 201 });
   } catch (error) {
     console.error("Could not add contestant", error);
     return Response.json({ error: "Could not add the contestant." }, { status: 500 });

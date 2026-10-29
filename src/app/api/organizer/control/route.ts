@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ROUND_SECONDS } from "@/lib/event-config";
 import { isOrganizer } from "@/lib/organizer-auth";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase-admin";
 
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
       const { data: entry, error: entryError } = await supabase.from("costume_entries").select("id").eq("id", entryId).maybeSingle();
       if (entryError) throw entryError;
       if (!entry) return Response.json({ error: "That contestant is no longer on the lineup." }, { status: 404 });
-      update = { status: "voting", current_entry_id: entryId, session_id: randomUUID(), started_at: new Date(now).toISOString(), ends_at: new Date(now + 20_000).toISOString(), paused_remaining_ms: null };
+      update = { status: "voting", current_entry_id: entryId, session_id: randomUUID(), started_at: new Date(now).toISOString(), ends_at: new Date(now + ROUND_SECONDS * 1000).toISOString(), paused_remaining_ms: null };
     } else if (action === "pause" && current.status === "voting" && current.ends_at) {
       update = { status: "paused", paused_remaining_ms: Math.max(0, Date.parse(current.ends_at) - now), ends_at: null };
     } else if (action === "resume" && current.status === "paused") {

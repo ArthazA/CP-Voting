@@ -52,6 +52,7 @@ The app uses Supabase for event data and live updates. In the Supabase Dashboard
 
 - For a database that already has the original app schema, run `0002_contestant_name.sql`, then `0003_planned_order.sql`, once each and in that order.
 - For a fresh database, run `0001_costume_party.sql`, `0002_contestant_name.sql`, and `0003_planned_order.sql`, in that order.
+- Then run `0004_scare_to_impress.sql` once. It adds the Best Group category and GROUP tag, lets guests change their vote until the timer ends, and stops the public live channel from carrying the average. **The vote API needs this migration**, so run it before deploying this version.
 
 Existing costume entries receive `TBA` for their new contestant name. Update those rows in Supabase if they are real entries.
 
@@ -77,7 +78,13 @@ The current app expects the website root of its host, such as `https://voting.co
 
 The organizer desk saves a shared planned order. Up/down controls update the queue; attendee screens display the upcoming contestants in a broadcast-style scrolling ticker. The first migration with this feature is `0003_planned_order.sql`.
 
-After the proxy is configured, open the public URL, sign in through **Organizer**, add a test contestant and costume, reorder the planned queue, start a round, and check that an iPhone on the event Wi-Fi follows the same session and ticker. Generate the attendee QR code from the final public URL.
+The host desk is at **`/host`** (for example `https://voting.company.example/host`). Guests at `/` no longer see an Organizer button. Rounds are 10 seconds (`ROUND_SECONDS` in `src/lib/event-config.ts`), and the walk order is Funniest → Prettiest → Best Group → Scariest with 8/8/6/8 slots.
+
+Guest reaction buttons send a `reaction` broadcast (`{ kind, entry_id }`, kinds `ghost`, `fire`, `heart`, `skull`, `clap`) on the `costume-party-live` channel. Nothing is stored; a big-screen page can subscribe to that event to float them over the live feed. Each guest is limited to one reaction every 2.5 seconds.
+
+**Winner reveal:** open `/reveal` on the big-screen computer after signing in at `/host` in the same browser. It reveals each category in walk order, then Best Solo (the top solo costume that didn't win a category). Press → or Space to advance, ← to go back, R to replay a step and F for full screen. Ties go to more votes, then the earlier walker. Add `?duel=15` to change the final climb from 10 to 15 seconds, or open `/reveal?demo` to rehearse with sample scores.
+
+After the proxy is configured, open the public URL, sign in at **`/host`**, add a test contestant and costume, reorder the planned queue, start a round, and check that an iPhone on the event Wi-Fi follows the same session and ticker. Generate the attendee QR code from the final public URL.
 
 ## Updating the deployment
 
