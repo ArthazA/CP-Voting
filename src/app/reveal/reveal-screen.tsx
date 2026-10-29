@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CATEGORIES, CATEGORY_LABELS, SLOT_PREFIX, type Category } from "@/lib/event-config";
+import { CATEGORIES, CATEGORY_LABELS, SLOT_PREFIX, inWalkOrder, type Category } from "@/lib/event-config";
 
 type Result = { id: string; contestantName: string; costumeName: string; category: Category; isGroup: boolean; votes: number; average: number | null };
 type Contestant = { id: string; slot: string; name: string; costume: string; isGroup: boolean; score: number; votes: number; walk: number };
@@ -23,7 +23,7 @@ function rank(list: Contestant[]) {
 
 function buildRounds(results: Result[]): Round[] {
   const seen: Partial<Record<Category, number>> = {};
-  const contestants = results.map((result, walk) => {
+  const contestants = inWalkOrder(results.filter((result) => SLOT_PREFIX[result.category])).map((result, walk) => {
     const position = (seen[result.category] ?? 0) + 1;
     seen[result.category] = position;
     return { id: result.id, slot: `${SLOT_PREFIX[result.category]}${position}`, name: result.contestantName, costume: result.costumeName, isGroup: result.isGroup, score: result.average ?? 0, votes: result.votes, walk, category: result.category };
@@ -57,14 +57,20 @@ const NEXT_LABEL: Record<Step, string> = { lineup: "Count the scores →", count
 const DEMO: Result[] = [
   ["El", "hella tall man", "Funniest", false, 4.61], ["CJ", "himself", "Funniest", false, 4.68], ["Morad and the gang", "Shaun The Sheeps", "Funniest", true, 4.21], ["Averina Subianto", "Pirates of The Caribbean", "Funniest", false, 3.87],
   ["Dina", "Mermaid Queen", "Prettiest", false, 4.4], ["Sari", "Corpse Bride", "Prettiest", false, 4.7], ["Tia", "Moth Fairy", "Prettiest", false, 3.6], ["Lala", "Glam Witch", "Prettiest", false, 4.65],
-  ["The Addams crew", "The Addams Family", "Group", true, 4.55], ["Squad Ghoul", "Ghostbusters", "Group", true, 4.5], ["Office 3B", "Zombie Office", "Group", true, 3.8],
+  ["The Addams crew", "The Addams Family", "Scariest", true, 4.55], ["Office 3B", "Zombie Office", "Funniest", true, 3.8],
   ["reno", "himself", "Scariest", false, 2.0], ["Bima", "Pennywise", "Scariest", false, 4.72], ["Yoga", "Plague Doctor", "Scariest", false, 4.69], ["Nanda", "Pocong", "Scariest", false, 4.3],
 ].map(([contestantName, costumeName, category, isGroup, average], index) => ({ id: `demo-${index}`, contestantName, costumeName, category, isGroup, average, votes: 180 } as Result));
 
-export default function RevealScreen() {
+// With `follow`, this screen mirrors the host: no controls, it shows whatever round and step the host is on.
+export default function RevealScreen({ follow }: { follow?: { round: number; step: number } }) {
+  const following = Boolean(follow);
+  const followRound = follow?.round ?? 0;
+  const followStep = follow?.step ?? 0;
   const [rounds, setRounds] = useState<Round[] | null>(null);
   const [problem, setProblem] = useState<"signin" | "error" | "empty" | null>(null);
   const [demo, setDemo] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const [duelSeconds, setDuelSeconds] = useState(10);
   const [position, setPosition] = useState({ round: 0, step: 0, t0: 0 });
   const [now, setNow] = useState(0);
@@ -73,6 +79,13 @@ export default function RevealScreen() {
     const params = new URLSearchParams(window.location.search);
     const seconds = Number(params.get("duel"));
     if (seconds >= 3 && seconds <= 30) setDuelSeconds(seconds);
+    if (following) {
+      const response = await fetch("/api/reveal", { cache: "no-store" }).catch(() => null);
+      if (!response?.ok) { setProblem("error"); return; }
+      setProblem(null);
+      setRounds(buildRounds((await response.json()).results ?? []));
+      return;
+    }
     if (params.has("demo")) {
       setDemo(true);
       setRounds(buildRounds(DEMO));
@@ -84,7 +97,15 @@ export default function RevealScreen() {
     const built = buildRounds((await response.json()).results ?? []);
     setProblem(built.length ? null : "empty");
     setRounds(built);
-  }, []);
+    const state = await fetch("/api/state", { cache: "no-store" }).then((stateResponse) => stateResponse.json()).catch(() => null);
+    setShared(Boolean(state?.control?.reveal_active));
+  }, [following]);
+
+  // Followers jump to wherever the host is and play that step from the start.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (following) setPosition({ round: followRound, step: followStep, t0: performance.now() });
+  }, [following, followRound, followStep]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
@@ -101,7 +122,20 @@ export default function RevealScreen() {
   const steps = useMemo(() => (round ? stepsFor(round) : []), [round]);
   const step = steps[position.step];
 
-  const go = useCallback((roundIndex: number, stepIndex: number) => setPosition({ round: roundIndex, step: stepIndex, t0: performance.now() }), []);
+  const go = useCallback((roundIndex: number, stepIndex: number) => {
+    setPosition({ round: roundIndex, step: stepIndex, t0: performance.now() });
+    // While the reveal is on everyone's screens, every step the host takes is mirrored there.
+    if (shared && !demo) void fetch("/api/organizer/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reveal_step", round: roundIndex, step: stepIndex }) });
+  }, [shared, demo]);
+
+  async function toggleShared() {
+    setShareBusy(true);
+    const response = await fetch("/api/organizer/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: shared ? "reveal_hide" : "reveal_show" }) }).catch(() => null);
+    setShareBusy(false);
+    if (!response?.ok) return;
+    if (!shared) setPosition({ round: 0, step: 0, t0: performance.now() });
+    setShared(!shared);
+  }
   const next = useCallback(() => {
     if (!rounds) return;
     if (finished) go(0, 0);
@@ -117,6 +151,7 @@ export default function RevealScreen() {
   const replay = useCallback(() => go(position.round, position.step), [go, position]);
 
   useEffect(() => {
+    if (following) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "ArrowRight" || event.key === " " || event.key === "Enter" || event.key === "PageDown") { event.preventDefault(); next(); }
       else if (event.key === "ArrowLeft" || event.key === "PageUp") { event.preventDefault(); back(); }
@@ -125,12 +160,12 @@ export default function RevealScreen() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, back, replay]);
+  }, [next, back, replay, following]);
 
   const elapsed = Math.max(0, (now - position.t0) / 1000);
 
   if (problem === "signin") return <main className="rv-shell rv-message"><h1>Sign in first</h1><p>Open <a href="/host">/host</a> in this browser, unlock it with the host password, then come back to this page.</p><p><a href="/reveal?demo">Or rehearse with sample scores →</a></p></main>;
-  if (problem === "error") return <main className="rv-shell rv-message"><h1>Couldn&apos;t load the scores</h1><p>Check the internet connection and reload this page.</p></main>;
+  if (problem === "error") return <main className="rv-shell rv-message"><h1>{follow ? "The winners are coming…" : "Couldn't load the scores"}</h1><p>{follow ? "Hang tight, this updates by itself." : "Check the internet connection and reload this page."}</p></main>;
   if (problem === "empty") return <main className="rv-shell rv-message"><h1>No contestants yet</h1><p>Add contestants and run the walk at <a href="/host">/host</a> first.</p><p><a href="/reveal?demo">Or rehearse with sample scores →</a></p></main>;
   if (!rounds) return <main className="rv-shell rv-message"><p>Loading the scores…</p></main>;
 
@@ -222,15 +257,16 @@ export default function RevealScreen() {
         <div className="rv-end"><h1>Happy Halloween</h1><p>Congratulations to every winner, and thanks for judging.</p></div>
       )}
 
-      <footer className="rv-controls">
-        <span>{demo ? "Rehearsal · sample scores" : "Live scores"} · → next · ← back · R replay · F full screen</span>
+      {!follow && <footer className="rv-controls">
+        <span>{demo ? "Rehearsal · sample scores" : shared ? "Showing on every phone and the live screen" : "Only you can see this"} · → next · ← back · R replay · F full screen</span>
         <div>
           <button type="button" onClick={back}>← Back</button>
           <button type="button" onClick={replay}>Replay step</button>
           {!demo && <button type="button" onClick={() => { void load(); go(position.round, position.step); }}>Reload scores</button>}
+          {!demo && <button type="button" className={shared ? "live" : ""} onClick={() => void toggleShared()} disabled={shareBusy}>{shared ? "● On everyone's screens · Hide" : "Show on everyone's screens"}</button>}
           <button type="button" className="primary" onClick={next}>{nextLabel}</button>
         </div>
-      </footer>
+      </footer>}
     </main>
   );
 }

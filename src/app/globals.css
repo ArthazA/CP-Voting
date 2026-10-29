@@ -709,3 +709,40 @@ html:has(.lv-shell), body:has(.lv-shell) { background:#000; }
 @keyframes lv-tick { from { transform:translateX(0); } to { transform:translateX(-50%); } }
 @keyframes lv-blink { to { visibility:hidden; } }
 @media (prefers-reduced-motion: reduce) { .lv-ticker-track { animation:none; } }
+
+/* Host desk: walk order per category, winner reveal button */
+.planned-category { display:flex; flex-direction:column; gap:8px; }
+.planned-category + .planned-category { margin-top:18px; }
+.planned-category h3 { margin:0; font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#ffc56c; }
+.planned-category h3 small { color:#aaa4b5; letter-spacing:.06em; margin-left:6px; }
+.reveal-control { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,.08); }
+.reveal-control a { color:#ffc56c; font-size:13px; }
+.rv-controls button.live { border-color:#ff9a1f; color:#ff9a1f; }
+
+/* Winner reveal on phones (guests follow the host's reveal) */
+@media (max-width: 760px) {
+  .rv-shell { height:auto; min-height:100dvh; padding:20px 16px; gap:14px; overflow:visible; }
+  .rv-top { flex-direction:column; align-items:flex-start; gap:10px; }
+  .rv-progress { justify-content:flex-start; }
+  .rv-progress span { font-size:10px; padding:4px 8px; }
+  .rv-heading { flex-direction:column; align-items:flex-start; gap:4px; }
+  .rv-heading > div { flex-wrap:wrap; gap:8px; }
+  .rv-heading h1 { font-size:30px; }
+  .rv-heading em { font-size:30px; }
+  .rv-heading p { text-align:left; font-size:14px; }
+  .rv-lineup { grid-template-columns:1fr; grid-template-rows:none; grid-auto-rows:minmax(58px,auto); gap:8px; }
+  .rv-row { padding:10px 12px; gap:10px; }
+  .rv-row-name { font-size:15px; white-space:normal; }
+  .rv-row-score { width:76px; font-size:24px; }
+  .rv-row-score.top { font-size:16px; }
+  .rv-stage { grid-template-columns:1fr !important; gap:12px; }
+  .rv-card { padding:16px; gap:10px; }
+  .rv-card-name span { font-size:18px; }
+  .rv-card-name i { font-size:22px; }
+  .rv-card-name b { font-size:22px; }
+  .rv-big { font-size:46px; }
+  .rv-card.winner .rv-big { font-size:56px; }
+  .rv-end h1 { font-size:64px; }
+  .rv-end p { font-size:18px; }
+}
+.lv-reveal { position:absolute; inset:0; z-index:5; }

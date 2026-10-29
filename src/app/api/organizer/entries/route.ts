@@ -1,6 +1,6 @@
 import { isOrganizer } from "@/lib/organizer-auth";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase-admin";
-import { CATEGORY_LABELS, SLOT_LIMIT, categoryRank, isCategory } from "@/lib/event-config";
+import { CATEGORY_LABELS, SLOT_LIMIT, categoryRank, inWalkOrder, isCategory } from "@/lib/event-config";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     const costumeName = typeof body.costumeName === "string" ? body.costumeName.trim().slice(0, 60) : "";
     const category = body.category;
     if (!contestantName || !costumeName || !isCategory(category)) return Response.json({ error: "Enter a contestant name, costume name, and category." }, { status: 400 });
-    const isGroup = category === "Group" || body.isGroup === true;
+    const isGroup = body.isGroup === true;
     const supabase = getSupabaseAdmin();
     const { data: existing, error: existingError } = await supabase
       .from("costume_entries")
@@ -29,10 +29,11 @@ export async function POST(request: Request) {
     if (error) throw error;
 
     // Slot the new contestant in after the last one of the same category, keeping the walk order
-    // Funniest → Prettiest → Best Group → Scariest. Manual reorders within a category are kept.
-    const ids = (existing ?? []).map((entry) => entry.id);
+    // Funniest → Prettiest → Scariest. Manual reorders within a category are kept.
+    const ordered = inWalkOrder(existing ?? []);
+    const ids = ordered.map((entry) => entry.id);
     let insertAt = 0;
-    (existing ?? []).forEach((entry, index) => { if (categoryRank(entry.category) <= categoryRank(category)) insertAt = index + 1; });
+    ordered.forEach((entry, index) => { if (categoryRank(entry.category) <= categoryRank(category)) insertAt = index + 1; });
     ids.splice(insertAt, 0, data.id);
     const { error: orderError } = await supabase.rpc("reorder_costume_entries", { p_entry_ids: ids });
     if (orderError) console.error("Could not place the new contestant in walk order", orderError);

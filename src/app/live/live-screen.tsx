@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import QRCode from "qrcode";
-import { CATEGORY_LABELS, LIVE_TOPIC, REACTIONS, REACTIONS_TOPIC, SLOT_PREFIX, type Category, type ReactionCounts, type ReactionKind } from "@/lib/event-config";
+import { CATEGORY_LABELS, LIVE_TOPIC, REACTIONS, REACTIONS_TOPIC, SLOT_PREFIX, inWalkOrder, type Category, type ReactionCounts, type ReactionKind } from "@/lib/event-config";
+import RevealScreen from "../reveal/reveal-screen";
 
 type Entry = { id: string; contestantName: string; costumeName: string; category: Category; isGroup: boolean };
-type Control = { status: "waiting" | "voting" | "paused"; current_entry_id: string | null; last_entry_id: string | null; ends_at: string | null; paused_remaining_ms: number | null };
+type Control = { status: "waiting" | "voting" | "paused"; current_entry_id: string | null; last_entry_id: string | null; ends_at: string | null; paused_remaining_ms: number | null; reveal_active?: boolean; reveal_round?: number; reveal_step?: number };
 type Floater = { id: number; emoji: string; x: number; drift: number; duration: number; delay: number; size: number };
 
 const MAX_FLOATERS = 70;
@@ -48,7 +49,7 @@ export default function LiveScreen() {
     if (!response?.ok) return;
     const state = await response.json();
     if (!state.configured) return;
-    setEntries(state.entries ?? []);
+    setEntries(inWalkOrder<Entry>(state.entries ?? []));
     setControl(state.control);
   }, []);
 
@@ -237,6 +238,9 @@ export default function LiveScreen() {
           ) : <span className="lv-ticker-empty">Scan the QR code to vote and react</span>}
         </div>
       </div>
+
+      {/* When the host shows the winners, the big screen follows the reveal (the camera keeps running underneath). */}
+      {control?.reveal_active && <div className="lv-reveal"><RevealScreen follow={{ round: control.reveal_round ?? 0, step: control.reveal_step ?? 0 }} /></div>}
 
       <div className="lv-controls">
         <select value={source} onChange={(event) => { if (event.target.value === "screen") void shareWindow(); else void openCamera(event.target.value); }}>
