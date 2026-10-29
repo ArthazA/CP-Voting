@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.costume_entries (
   id uuid primary key default gen_random_uuid(),
   display_name text not null check (char_length(trim(display_name)) between 1 and 60),
-  category text not null check (category in ('Scariest', 'Prettiest', 'Funniest', 'Group')),
+  category text not null check (category in ('Scariest', 'Prettiest', 'Funniest')),
   sort_order integer not null default 0,
   created_at timestamptz not null default now()
 );

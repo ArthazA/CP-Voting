@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import Image from "next/image";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-type Category = "Scariest" | "Prettiest" | "Funniest" | "Group";
-type Entry = { id: string; contestantName: string; costumeName: string; category: Category };
+type Category = "Scariest" | "Prettiest" | "Funniest";
+type StoredCategory = Category | "Group";
+type Entry = { id: string; contestantName: string; costumeName: string; category: StoredCategory };
 type Vote = { entryId: string; score: number };
-type OrganizerResult = { id: string; contestantName: string; costumeName: string; category: Category; votes: number; average: number | null };
+type OrganizerResult = { id: string; contestantName: string; costumeName: string; category: StoredCategory; votes: number; average: number | null };
 type Mode = "audience" | "organizer";
 type SessionStatus = "waiting" | "voting" | "paused";
 
@@ -28,19 +28,19 @@ function getVoterKey() {
   return key;
 }
 
-const categories: Category[] = ["Scariest", "Prettiest", "Funniest", "Group"];
+const categories: Category[] = ["Scariest", "Prettiest", "Funniest"];
 const starterEntries: Entry[] = [
   { id: "s-1", contestantName: "Alex", costumeName: "The Haunted Doll", category: "Scariest" },
   { id: "s-2", contestantName: "Sam", costumeName: "Midnight Creature", category: "Scariest" },
   { id: "p-1", contestantName: "Morgan", costumeName: "Moonlit Monarch", category: "Prettiest" },
   { id: "f-1", contestantName: "Taylor", costumeName: "The Office Goblin", category: "Funniest" },
-  { id: "g-1", contestantName: "The Spooky Squad", costumeName: "The Pumpkin Patch", category: "Group" },
 ];
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("audience");
   const [entries, setEntries] = useState<Entry[]>(starterEntries);
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
+  const [lastEntryId, setLastEntryId] = useState<string | null>(null);
   const [status, setStatus] = useState<SessionStatus>("waiting");
   const [remaining, setRemaining] = useState(20);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -54,7 +54,6 @@ export default function Home() {
   const [actionError, setActionError] = useState("");
   const [votes, setVotes] = useState<Vote[]>([]);
   const [organizerResults, setOrganizerResults] = useState<OrganizerResult[]>([]);
-  const amongUsAudio = useRef<HTMLAudioElement | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
   const [newContestantName, setNewContestantName] = useState("");
@@ -71,19 +70,14 @@ export default function Home() {
   const displayedVoteCount = remoteMode ? liveVoteCount : entryVotes.length;
   const showAverage = (status === "voting" || status === "paused") && remaining > 5;
   const hideAverageForCountdown = status === "voting" && remaining <= 5;
-  const finishedCount = useMemo(() => new Set(votes.map((vote) => vote.entryId)).size, [votes]);
+  const orderAnchorId = status === "waiting" ? lastEntryId ?? currentEntryId : currentEntryId;
+  const orderAnchorIndex = entries.findIndex((entry) => entry.id === orderAnchorId);
+  const upNextEntries = orderAnchorIndex >= 0 ? entries.slice(orderAnchorIndex + 1) : entries;
 
   function getEntryResult(entryId: string) {
     if (remoteMode) return organizerResults.find((result) => result.id === entryId) ?? null;
     const entryVotes = votes.filter((vote) => vote.entryId === entryId);
     return { votes: entryVotes.length, average: entryVotes.length ? entryVotes.reduce((sum, vote) => sum + vote.score, 0) / entryVotes.length : null };
-  }
-
-  function playAmongUsSfx() {
-    const audio = amongUsAudio.current;
-    if (!audio) return;
-    audio.currentTime = 0;
-    void audio.play().catch(() => undefined);
   }
 
   const loadOrganizerResults = useCallback(async () => {
@@ -106,6 +100,7 @@ export default function Home() {
         setNotice("Connected · live event state");
         setEntries(state.entries);
         setCurrentEntryId(state.control.current_entry_id);
+        setLastEntryId(state.control.last_entry_id ?? null);
         setStatus(state.control.status);
         setSessionId(state.control.session_id);
         setEndsAt(state.control.ends_at);
@@ -129,6 +124,7 @@ export default function Home() {
         .channel("costume-party-live", { config: { private: false } })
         .on("broadcast", { event: "state_updated" }, ({ payload }) => {
           setCurrentEntryId(payload.current_entry_id ?? null);
+          setLastEntryId(payload.last_entry_id ?? null);
           setStatus(payload.status);
           setSessionId(payload.session_id ?? null);
           setEndsAt(payload.ends_at ?? null);
@@ -217,7 +213,6 @@ export default function Home() {
     setHasVoted(false);
     setSelectedScore(null);
     setStatus("voting");
-    setEndsAt(null);
     setNotice(`Now voting: ${entry.contestantName} as ${entry.costumeName}`);
   }
 
@@ -274,23 +269,26 @@ export default function Home() {
   async function stopSession() {
     if (remoteMode) {
       try {
-        await apiAction("stop");
+        const control = await apiAction("stop");
         if (organizerAuthed) await loadOrganizerResults();
+        setLastEntryId(control.last_entry_id ?? currentEntryId);
         setStatus("waiting");
         setCurrentEntryId(null);
         setSessionId(null);
         setEndsAt(null);
         setRemaining(20);
         setHasVoted(false);
-      setSelectedScore(null);
+        setSelectedScore(null);
         setNotice("Waiting for the organizer to start the next costume.");
       } catch (error) { setActionError(error instanceof Error ? error.message : "Could not end session."); }
       return;
     }
     setStatus("waiting");
+    setLastEntryId(currentEntryId);
     setCurrentEntryId(null);
     setRemaining(20);
     setHasVoted(false);
+    setSelectedScore(null);
     setNotice("Waiting for the organizer to start the next costume.");
   }
 
@@ -345,7 +343,33 @@ export default function Home() {
       setHasVoted(false);
       setSelectedScore(null);
     }
+    if (lastEntryId === entry.id) setLastEntryId(null);
     setNotice(`${displayName} deleted.`);
+  }
+
+  async function moveEntry(entryId: string, direction: -1 | 1) {
+    const fromIndex = entries.findIndex((entry) => entry.id === entryId);
+    const toIndex = fromIndex + direction;
+    if (fromIndex < 0 || toIndex < 0 || toIndex >= entries.length) return;
+
+    const reordered = [...entries];
+    [reordered[fromIndex], reordered[toIndex]] = [reordered[toIndex], reordered[fromIndex]];
+    setEntries(reordered);
+    setActionError("");
+    if (!remoteMode) return;
+
+    try {
+      const response = await fetch("/api/organizer/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryIds: reordered.map((entry) => entry.id) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Could not save the planned order.");
+    } catch (error) {
+      setEntries(entries);
+      setActionError(error instanceof Error ? error.message : "Could not save the planned order.");
+    }
   }
 
   async function openOrganizer() {
@@ -394,27 +418,28 @@ export default function Home() {
 
       {mode === "audience" ? (
         <section className="audience-view" id="home">
-          <div className="eyebrow"><span className="eyebrow-line" /> HALLOWEEN COSTUME WALK <span className="eyebrow-line" /></div>
+          <div className="audience-masthead"><span>HALLOWEEN COSTUME WALK</span><span className="live-tag"><i /> LIVE</span></div>
+          <div className="category-rail" aria-label="Costume categories">
+            {categories.map((category) => {
+              const activeCategory = status === "waiting" ? upNextEntries[0]?.category : currentEntry?.category;
+              const categoryEmoji: Record<Category, string> = { Scariest: "👹", Prettiest: "🦋", Funniest: "🤡" };
+              return <span key={category} className={`rail-category ${activeCategory === category ? "active" : ""}`}><i>{categoryEmoji[category]}</i>{category}</span>;
+            })}
+          </div>
           {status === "waiting" || !currentEntry ? (
             <div className="waiting-card">
-              <div className="orbit orbit-a" /><div className="orbit orbit-b" />
-              <div className="moon">☾</div>
               <div className="waiting-copy">
-                <span className="small-label">YOU’RE IN THE RIGHT PLACE</span>
-                <h1>Plz wait,<br /><em>tiny human.</em></h1>
-                <p className="wait-joke">Here’s an Among Us for your attention span.</p>
-                <p className="instruction">When a costume appears, tap <b>1–5 pumpkins</b> to rate it. You get one vote per costume.</p>
-                <div className="waiting-state"><span className="pulse-dot" /> Waiting for the next costume…</div>
+                <span className="small-label">STANDBY</span>
+                <h1>Wait a moment...</h1>
+                <p className="judges-word">judges</p>
+                <p className="instruction">The next contestant is getting ready.<br />Keep this page open.</p>
+                {upNextEntries[0] && <div className="next-preview"><small>UP NEXT</small><strong>{upNextEntries[0].contestantName}</strong><span>as {upNextEntries[0].costumeName}</span></div>}
               </div>
-              <button className="crewmate-placeholder" type="button" onClick={playAmongUsSfx} aria-label="Tap the Among Us character to play a sound">
-                <Image src="/Red%20Among%20Us%20Character.png" alt="Among Us character" width={2000} height={2000} />
-                <span className="crew-star">✦</span><span className="crew-spark">✧</span>
-              </button>
-              <div className="card-bottom-note"><span>NO APP NEEDED</span><span>·</span><span>JUST ONE TAP</span><span>·</span><span>BE NICE 👻</span></div>
+              <div className="waiting-web-mark" aria-hidden="true">✳</div>
             </div>
           ) : (
             <div className="vote-card">
-              <div className="vote-topline"><span className={`category-chip ${currentEntry.category.toLowerCase()}`}>{currentEntry.category}</span><span className={`vote-clock ${remaining <= 5 ? "urgent" : ""}`} aria-label={`${remaining} seconds remaining`}><small>TIME LEFT</small><b>00:{String(remaining).padStart(2, "0")}</b></span></div>
+              <div className="vote-topline"><div className="walking-label"><small>NOW WALKING</small>{categories.includes(currentEntry.category as Category) && <span className={`category-chip ${currentEntry.category.toLowerCase()}`}>{currentEntry.category}</span>}</div><span className={`vote-clock ${remaining <= 5 ? "urgent" : ""}`} aria-label={`${remaining} seconds remaining`}><small>TIME LEFT</small><b>{remaining} s</b></span></div>
               <div className="vote-heading">
                 <div className="vote-title">
                   <p><span className="contestant-highlight">{currentEntry.contestantName}</span> <i>as</i></p>
@@ -435,7 +460,7 @@ export default function Home() {
                 <div className="score-prompt"><b>CHOOSE YOUR SCORE</b><small>1 = LOW <i>·</i> 5 = HIGH</small></div>
                 <div className="score-row" aria-label="Choose a score from one to five pumpkins">
                   {[1, 2, 3, 4, 5].map((score) => (
-                    <button key={score} className={`pumpkin-button ${selectedScore === score ? "selected" : ""} ${hasVoted ? "locked" : ""}`} onClick={() => submitVote(score)} disabled={hasVoted || status !== "voting"} aria-label={`Score ${score} out of 5`}>
+                    <button key={score} className={`pumpkin-button ${selectedScore === score ? "selected" : ""} ${selectedScore !== null && score < selectedScore ? "prior-lit" : ""} ${hasVoted ? "locked" : ""}`} onClick={() => submitVote(score)} disabled={hasVoted || status !== "voting"} aria-label={`Score ${score} out of 5`}>
                       <span>🎃</span><small>{score}</small>
                     </button>
                   ))}
@@ -448,7 +473,6 @@ export default function Home() {
               {status === "paused" && <div className="pause-overlay"><span>Ⅱ</span><b>Voting paused</b><small>Please wait for the organizer.</small></div>}
             </div>
           )}
-          <div className="category-rail" aria-label="Costume categories">{categories.map((category) => <span key={category} className={`rail-category ${currentEntry?.category === category ? "active" : ""}`}><i>{currentEntry?.category === category ? "✦" : "·"}</i>{category}</span>)}</div>
         </section>
       ) : (
         <section className="organizer-view">
@@ -459,7 +483,7 @@ export default function Home() {
             <div className="control-card">
               <div className="card-heading"><div><span className="small-label">CURRENT SESSION</span><h2>{currentEntry ? <>{currentEntry.contestantName} <i>as</i> {currentEntry.costumeName}</> : "Waiting to begin"}</h2></div><span className={`session-status ${status}`}>{status}</span></div>
               <div className="control-current">
-                <div className="session-category">{currentEntry ? <span className={`category-chip ${currentEntry.category.toLowerCase()}`}>{currentEntry.category}</span> : <span className="category-chip">No active costume</span>}</div>
+                <div className="session-category">{currentEntry && categories.includes(currentEntry.category as Category) ? <span className={`category-chip ${currentEntry.category.toLowerCase()}`}>{currentEntry.category}</span> : <span className="category-chip">No active category</span>}</div>
                 <div className="big-timer">00:{String(remaining).padStart(2, "0")}<small> seconds</small></div>
                 <div className="organizer-stats"><div><small>AVERAGE SCORE</small><b>{displayedVoteCount ? displayedAverage.toFixed(2) : "—"}<span> / 5</span></b></div><div><small>VOTES RECEIVED</small><b>{displayedVoteCount}</b></div></div>
               </div>
@@ -485,28 +509,39 @@ export default function Home() {
               </form>
             </div>
 
-            <div className="lineup-card">
-              <div className="card-heading"><div><span className="small-label">THE LINEUP</span><h2>Start the next round</h2></div><span className="lineup-count">{entries.length} entries</span></div>
-              <div className="category-groups">
-                {categories.map((category) => {
-                  const group = entries.filter((entry) => entry.category === category);
-                  return <div className="category-group" key={category}><div className="group-heading"><span className={`category-chip ${category.toLowerCase()}`}>{category}</span><span>{group.length} {group.length === 1 ? "costume" : "costumes"}</span></div>
-                    {group.length ? group.map((entry, index) => {
-                      const result = getEntryResult(entry.id);
-                      const isActive = entry.id === currentEntryId && (status === "voting" || status === "paused");
-                      return <div className={`lineup-row ${entry.id === currentEntryId ? "current" : ""}`} key={entry.id}><span className="lineup-number">{String(index + 1).padStart(2, "0")}</span><span className="lineup-name"><b>{entry.contestantName}</b><small> as {entry.costumeName}{entry.id === currentEntryId && " · CURRENT"}</small></span><span className="lineup-result"><b>{result?.average == null ? "—" : result.average.toFixed(2)}</b><small>{result?.votes ?? 0} votes</small></span><button className="start-button" onClick={() => void startEntry(entry)} disabled={status === "voting" || status === "paused"}>{entry.id === currentEntryId && status === "voting" ? "LIVE" : "Start →"}</button><button className="delete-button" type="button" onClick={() => void deleteEntry(entry)} disabled={isActive} title={isActive ? "End or pause this round before deleting the active costume" : `Delete ${entry.contestantName} as ${entry.costumeName}`} aria-label={`Delete ${entry.contestantName} as ${entry.costumeName}`}>Delete</button></div>;
-                    }) : <p className="empty-category">No costumes added yet.</p>}
+            <div className="lineup-card planned-order-card">
+              <div className="card-heading"><div><span className="small-label">PLANNED ORDER</span><h2>Who walks next</h2></div><span className="lineup-count">{entries.length} entries</span></div>
+              <p className="planned-hint">Use the arrows to rearrange the shared queue. The first upcoming contestant appears on attendee screens.</p>
+              <div className="planned-order-list">
+                {entries.length ? entries.map((entry, index) => {
+                  const result = getEntryResult(entry.id);
+                  const isActive = entry.id === currentEntryId && (status === "voting" || status === "paused");
+                  return <div className={`planned-row ${entry.id === currentEntryId ? "current" : ""}`} key={entry.id}>
+                    <span className="lineup-number">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="planned-person">{categories.includes(entry.category as Category) && <span className={`category-chip ${entry.category.toLowerCase()}`}>{entry.category}</span>}<b>{entry.contestantName}</b><small>as {entry.costumeName}{isActive ? " · LIVE" : ""}</small></span>
+                    <span className="lineup-result"><b>{result?.average == null ? "—" : result.average.toFixed(2)}</b><small>{result?.votes ?? 0} votes</small></span>
+                    <div className="planned-actions">
+                      <div className="reorder-buttons"><button type="button" onClick={() => void moveEntry(entry.id, -1)} disabled={index === 0} aria-label={`Move ${entry.contestantName} up`} title="Move up">↑</button><button type="button" onClick={() => void moveEntry(entry.id, 1)} disabled={index === entries.length - 1} aria-label={`Move ${entry.contestantName} down`} title="Move down">↓</button></div>
+                      <button className="start-button" onClick={() => void startEntry(entry)} disabled={status === "voting" || status === "paused"}>{isActive ? "LIVE" : "Start"}</button>
+                      <button className="delete-button" type="button" onClick={() => void deleteEntry(entry)} disabled={isActive} title={isActive ? "End this round before deleting the active costume" : `Delete ${entry.contestantName} as ${entry.costumeName}`} aria-label={`Delete ${entry.contestantName} as ${entry.costumeName}`}>Delete</button>
+                    </div>
                   </div>;
-                })}
+                }) : <p className="empty-category">Add a contestant to build the walk order.</p>}
               </div>
-              <p className="lineup-footnote">{finishedCount} {finishedCount === 1 ? "entry has" : "entries have"} received at least one vote in this preview.</p>
+              <p className="lineup-footnote">Order changes update the attendee ticker. Vote totals stay beside each contestant.</p>
             </div>
           </div>}
         </section>
       )}
 
+      {mode === "audience" && <div className="broadcast-ticker" aria-label="Upcoming contestants">
+        <span className="ticker-label">UP NEXT</span>
+        <div className="ticker-window">
+          {upNextEntries.length ? <div className="ticker-track">{[0, 1].map((copy) => <div className="ticker-set" key={copy} aria-hidden={copy === 1}>{upNextEntries.map((entry) => <span className="ticker-entry" key={`${copy}-${entry.id}`}><b>{entry.contestantName}</b><i>as</i><strong>{entry.costumeName}</strong>{categories.includes(entry.category as Category) && <em>{entry.category}</em>}</span>)}</div>)}</div> : <span className="ticker-empty">The next contestant is getting ready</span>}
+        </div>
+      </div>}
+
       <footer className="page-footer"><span>MADE FOR A LITTLE HALLOWEEN MAGIC</span><span>✦</span><span>ONE VOTE PER COSTUME</span><span className="footer-spacer" /><span>ROOM 13 · COSTUME PARTY</span></footer>
-      <audio ref={amongUsAudio} src="/53b1bab6-a8c3-4a1a-82db-7110ce1c29ef_6KNDGWD.mp3" preload="none" />
     </main>
   );
 }

@@ -25,9 +25,9 @@ export async function POST(request: Request) {
       const remaining = Math.max(0, Number(current.paused_remaining_ms ?? 0));
       update = remaining > 0
         ? { status: "voting", started_at: new Date(now).toISOString(), ends_at: new Date(now + remaining).toISOString(), paused_remaining_ms: null }
-        : { status: "waiting", current_entry_id: null, session_id: null, started_at: null, ends_at: null, paused_remaining_ms: null };
+        : { status: "waiting", last_entry_id: current.current_entry_id, current_entry_id: null, session_id: null, started_at: null, ends_at: null, paused_remaining_ms: null };
     } else if (action === "stop") {
-      update = { status: "waiting", current_entry_id: null, session_id: null, started_at: null, ends_at: null, paused_remaining_ms: null };
+      update = { status: "waiting", last_entry_id: current.current_entry_id ?? current.last_entry_id, current_entry_id: null, session_id: null, started_at: null, ends_at: null, paused_remaining_ms: null };
     } else {
       return Response.json({ error: "That action isn’t available in the current session." }, { status: 409 });
     }

@@ -50,8 +50,8 @@ Keep `.env.local` in the project root. It contains the Supabase URL and keys, or
 
 The app uses Supabase for event data and live updates. In the Supabase Dashboard’s **SQL Editor**:
 
-- For a database that already has the original app schema, run `supabase/migrations/0002_contestant_name.sql` once.
-- For a fresh database, run `0001_costume_party.sql`, then `0002_contestant_name.sql`, in that order.
+- For a database that already has the original app schema, run `0002_contestant_name.sql`, then `0003_planned_order.sql`, once each and in that order.
+- For a fresh database, run `0001_costume_party.sql`, `0002_contestant_name.sql`, and `0003_planned_order.sql`, in that order.
 
 Existing costume entries receive `TBA` for their new contestant name. Update those rows in Supabase if they are real entries.
 
@@ -75,7 +75,9 @@ The terminal must stay open while this command runs; `Ctrl+C` stops the app. For
 
 The current app expects the website root of its host, such as `https://voting.company.example/`. It uses root-relative API and media paths. If the company wants to mount it beneath another site, such as `https://company.example/costume-party/`, the app needs a matching Next.js `basePath` and prefixed API/media paths **before it is built**. The server administrator should provide the exact public path so that configuration can be set. A reverse-proxy rule alone will not make the current root-relative paths work under a child path.
 
-After the proxy is configured, open the public URL, sign in through **Organizer**, add a test contestant and costume, start a round, and check that an iPhone on the event Wi-Fi follows the same session. Generate the attendee QR code from the final public URL.
+The organizer desk saves a shared planned order. Up/down controls update the queue; attendee screens display the upcoming contestants in a broadcast-style scrolling ticker. The first migration with this feature is `0003_planned_order.sql`.
+
+After the proxy is configured, open the public URL, sign in through **Organizer**, add a test contestant and costume, reorder the planned queue, start a round, and check that an iPhone on the event Wi-Fi follows the same session and ticker. Generate the attendee QR code from the final public URL.
 
 ## Updating the deployment
 

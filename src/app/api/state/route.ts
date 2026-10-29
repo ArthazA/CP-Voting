@@ -12,8 +12,8 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabaseAdmin();
     const [{ data: entries, error: entriesError }, { data: control, error: controlError }] = await Promise.all([
-      supabase.from("costume_entries").select("id, contestant_name, display_name, category, sort_order, created_at").order("sort_order").order("created_at"),
-      supabase.from("event_control").select("event_name, status, current_entry_id, session_id, started_at, ends_at, paused_remaining_ms, updated_at").eq("id", 1).single(),
+      supabase.from("costume_entries").select("id, contestant_name, display_name, category, planned_order").order("planned_order"),
+      supabase.from("event_control").select("event_name, status, current_entry_id, last_entry_id, session_id, started_at, ends_at, paused_remaining_ms, updated_at").eq("id", 1).single(),
     ]);
     if (entriesError || controlError) throw entriesError ?? controlError;
 

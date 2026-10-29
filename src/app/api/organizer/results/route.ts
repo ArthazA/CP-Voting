@@ -9,7 +9,7 @@ export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
     const [{ data: entries, error: entriesError }, { data: votes, error: votesError }] = await Promise.all([
-      supabase.from("costume_entries").select("id, contestant_name, display_name, category, sort_order").order("sort_order"),
+      supabase.from("costume_entries").select("id, contestant_name, display_name, category, planned_order").order("planned_order"),
       supabase.from("costume_votes").select("entry_id, score"),
     ]);
     if (entriesError || votesError) throw entriesError ?? votesError;

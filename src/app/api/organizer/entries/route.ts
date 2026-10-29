@@ -1,7 +1,7 @@
 import { isOrganizer } from "@/lib/organizer-auth";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase-admin";
 
-const categories = ["Scariest", "Prettiest", "Funniest", "Group"] as const;
+const categories = ["Scariest", "Prettiest", "Funniest"] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
@@ -14,9 +14,12 @@ export async function POST(request: Request) {
     const category = body.category;
     if (!contestantName || !costumeName || !categories.includes(category)) return Response.json({ error: "Enter a contestant name, costume name, and category." }, { status: 400 });
     const supabase = getSupabaseAdmin();
-    const { count, error: countError } = await supabase.from("costume_entries").select("id", { count: "exact", head: true }).eq("category", category);
-    if (countError) throw countError;
-    const { data, error } = await supabase.from("costume_entries").insert({ contestant_name: contestantName, display_name: costumeName, category, sort_order: count ?? 0 }).select("id, contestant_name, display_name, category").single();
+    const [{ count: categoryCount, error: categoryCountError }, { data: lastPlannedEntry, error: plannedOrderError }] = await Promise.all([
+      supabase.from("costume_entries").select("id", { count: "exact", head: true }).eq("category", category),
+      supabase.from("costume_entries").select("planned_order").order("planned_order", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    if (categoryCountError || plannedOrderError) throw categoryCountError ?? plannedOrderError;
+    const { data, error } = await supabase.from("costume_entries").insert({ contestant_name: contestantName, display_name: costumeName, category, sort_order: categoryCount ?? 0, planned_order: (lastPlannedEntry?.planned_order ?? -1) + 1 }).select("id, contestant_name, display_name, category").single();
     if (error) throw error;
     return Response.json({ entry: { id: data.id, contestantName: data.contestant_name, costumeName: data.display_name, category: data.category } }, { status: 201 });
   } catch (error) {
