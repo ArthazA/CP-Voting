@@ -82,6 +82,12 @@ The host desk is at **`/host`** (for example `https://voting.company.example/hos
 
 Guest reaction buttons send a `reaction` broadcast (`{ kind, entry_id }`, kinds `ghost`, `fire`, `heart`, `skull`, `clap`) on the `costume-party-live` channel. Nothing is stored; a big-screen page can subscribe to that event to float them over the live feed. Each guest is limited to one reaction every 2.5 seconds.
 
+**Live catwalk screen:** open `/live` in Chrome on the Mac that drives the TVs. Plug the iPhone into that Mac by USB (Continuity Camera: same Apple ID, iOS 16+, macOS 13+), allow the camera, and pick the iPhone from the menu (move the mouse to show it; it hides after 3 seconds). "Share a window instead…" captures a window (e.g. QuickTime showing the iPhone) as a backup. The page shows who's walking, the timer, a QR code for the current site address, a reaction tally and guests' reactions floating up. Press F for full screen. Cameras need HTTPS (or localhost).
+
+**Reactions:** guests can tap as often as they like. Each phone bundles its taps and posts them to `/api/react` about once a second; the server merges everyone's taps and forwards them to the big screen on the `costume-party-reactions` topic at most twice a second. Nothing is stored.
+
+**Run `0005_host_only_vote_updates.sql` once** (after 0004). It sends live vote counts to the host desk only instead of to every guest, which keeps a 220-guest night inside Supabase's realtime limits (Free plan: 200 connections, 100 messages/second). Phones that can't open a live connection check in every 3 seconds instead.
+
 **Winner reveal:** open `/reveal` on the big-screen computer after signing in at `/host` in the same browser. It reveals each category in walk order, then Best Solo (the top solo costume that didn't win a category). Press → or Space to advance, ← to go back, R to replay a step and F for full screen. Ties go to more votes, then the earlier walker. Add `?duel=15` to change the final climb from 10 to 15 seconds, or open `/reveal?demo` to rehearse with sample scores.
 
 After the proxy is configured, open the public URL, sign in at **`/host`**, add a test contestant and costume, reorder the planned queue, start a round, and check that an iPhone on the event Wi-Fi follows the same session and ticker. Generate the attendee QR code from the final public URL.

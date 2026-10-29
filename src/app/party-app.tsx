@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
-import { CATEGORIES, CATEGORY_LABELS, PUMPKIN_LABELS, ROUND_SECONDS, SLOT_LIMIT, SLOT_PREFIX, categoryRank, type Category } from "@/lib/event-config";
+import { CATEGORIES, CATEGORY_LABELS, HOST_TOPIC, LIVE_TOPIC, PUMPKIN_LABELS, REACTIONS, ROUND_SECONDS, SLOT_LIMIT, SLOT_PREFIX, categoryRank, type Category, type ReactionCounts, type ReactionKind } from "@/lib/event-config";
 
 type Entry = { id: string; contestantName: string; costumeName: string; category: Category; isGroup: boolean };
 type Vote = { entryId: string; score: number };
@@ -29,14 +29,10 @@ function getVoterKey() {
 }
 
 const categories = CATEGORIES;
-const REACTIONS = [
-  { kind: "ghost", emoji: "👻", label: "Spooky" },
-  { kind: "fire", emoji: "🔥", label: "Fire" },
-  { kind: "heart", emoji: "🖤", label: "Love" },
-  { kind: "skull", emoji: "💀", label: "Dead" },
-  { kind: "clap", emoji: "👏", label: "Applause" },
-] as const;
-const REACTION_COOLDOWN_MS = 2500;
+// Taps are bundled on the phone and sent about once a second, so guests can spam freely.
+const REACTION_SEND_MS = 900;
+// If the live connection can't be made (e.g. Supabase's connection cap), check in on this interval instead.
+const FALLBACK_POLL_MS = 3000;
 const starterEntries: Entry[] = [
   { id: "f-1", contestantName: "Taylor", costumeName: "The Office Goblin", category: "Funniest", isGroup: false },
   { id: "f-2", contestantName: "Morad and the gang", costumeName: "Shaun The Sheeps", category: "Funniest", isGroup: true },
@@ -56,7 +52,7 @@ function slotCodes(entries: Entry[]) {
 }
 
 export default function PartyApp({ mode }: { mode: Mode }) {
-  const [entries, setEntries] = useState<Entry[]>(starterEntries);
+  const [entries, setEntries] = useState<Entry[]>([]);
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
   const [lastEntryId, setLastEntryId] = useState<string | null>(null);
   const [status, setStatus] = useState<SessionStatus>("waiting");
@@ -80,8 +76,10 @@ export default function PartyApp({ mode }: { mode: Mode }) {
   const [newIsGroup, setNewIsGroup] = useState(false);
   const resultsRefresh = useRef<number | null>(null);
   const currentEntryRef = useRef<string | null>(null);
-  const channelRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(null);
-  const [reactionCooldown, setReactionCooldown] = useState(false);
+  const pendingReactions = useRef<ReactionCounts>({});
+  const reactionTimer = useRef<number | null>(null);
+  const burstId = useRef(0);
+  const [reactionBursts, setReactionBursts] = useState<{ id: number; emoji: string; x: number }[]>([]);
   const [notice, setNotice] = useState("Preview mode · Supabase is not connected yet");
 
   const currentEntry = entries.find((entry) => entry.id === currentEntryId) ?? null;
@@ -114,7 +112,9 @@ export default function PartyApp({ mode }: { mode: Mode }) {
 
   useEffect(() => {
     let cancelled = false;
-    let realtimeChannel: ReturnType<ReturnType<typeof createClient>["channel"]> | null = null;
+    let supabase: ReturnType<typeof createClient> | null = null;
+    let pollTimer: number | null = null;
+    let fallbackTimer: number | null = null;
     const loadState = async () => {
       try {
         const voterKey = getVoterKey();
@@ -139,15 +139,33 @@ export default function PartyApp({ mode }: { mode: Mode }) {
         return false;
       }
     };
+    const startPolling = () => { pollTimer ??= window.setInterval(() => { void loadState(); }, FALLBACK_POLL_MS); };
+    const stopPolling = () => { if (pollTimer !== null) { window.clearInterval(pollTimer); pollTimer = null; } };
+
+    const onVotesUpdated = ({ payload }: { payload: { entry_id?: string; vote_count?: number } }) => {
+      setLiveVoteCount(Number(payload.vote_count ?? 0));
+      setOrganizerResults((previous) => previous.map((result) => result.id === payload.entry_id
+        ? { ...result, votes: Number(payload.vote_count ?? 0) }
+        : result));
+      // The broadcast carries no average, so the host desk re-fetches it, at most once a second.
+      if (resultsRefresh.current === null) {
+        resultsRefresh.current = window.setTimeout(() => {
+          resultsRefresh.current = null;
+          void loadState();
+          void loadOrganizerResults();
+        }, 1000);
+      }
+    };
 
     void loadState().then((connected) => {
-      if (!connected || cancelled) return;
+      if (cancelled) return;
+      if (!connected) { setEntries(starterEntries); return; }
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-      if (!url || !key) return;
-      const supabase = createClient(url, key);
-      realtimeChannel = supabase
-        .channel("costume-party-live", { config: { private: false } })
+      if (!url || !key) { startPolling(); return; }
+      supabase = createClient(url, key);
+      const liveChannel = supabase
+        .channel(LIVE_TOPIC, { config: { private: false } })
         .on("broadcast", { event: "state_updated" }, ({ payload }) => {
           // Pausing or resuming the same costume keeps the guest's pick; a new costume clears it.
           const sameCostume = (payload.current_entry_id ?? null) === currentEntryRef.current;
@@ -165,32 +183,28 @@ export default function PartyApp({ mode }: { mode: Mode }) {
           }
           setNotice(payload.status === "voting" ? "A costume is live · cast your vote" : payload.status === "paused" ? "Voting paused by organizer" : "Waiting for the next costume");
         })
-        .on("broadcast", { event: "votes_updated" }, ({ payload }) => {
-          setLiveVoteCount(Number(payload.vote_count ?? 0));
-          setOrganizerResults((previous) => previous.map((result) => result.id === payload.entry_id
-            ? { ...result, votes: Number(payload.vote_count ?? 0) }
-            : result));
-          // The broadcast carries no average (the channel is public), so the host desk re-fetches it, at most once a second.
-          if (mode === "organizer" && resultsRefresh.current === null) {
-            resultsRefresh.current = window.setTimeout(() => {
-              resultsRefresh.current = null;
-              void loadState();
-              void loadOrganizerResults();
-            }, 1000);
-          }
-        })
-        .on("broadcast", { event: "entries_updated" }, () => { void loadState(); })
-        // Reactions are fire-and-forget broadcasts for the big screen; nothing is written to the database.
-        .subscribe((connectionStatus) => {
-          if (connectionStatus === "SUBSCRIBED") void loadState();
-        });
-      channelRef.current = realtimeChannel;
+        .on("broadcast", { event: "entries_updated" }, () => { void loadState(); });
+      // Until migration 0005 runs, vote counts still arrive on the shared topic; the host desk listens on both.
+      if (mode === "organizer") liveChannel.on("broadcast", { event: "votes_updated" }, onVotesUpdated);
+      liveChannel.subscribe((connectionStatus) => {
+        if (connectionStatus === "SUBSCRIBED") { stopPolling(); void loadState(); }
+        else startPolling();
+      });
+      // A phone that still isn't connected after a few seconds checks in on a timer instead.
+      fallbackTimer = window.setTimeout(() => {
+        const live = supabase?.getChannels().some((channel) => channel.state === "joined");
+        if (!live) startPolling();
+      }, 6000);
+      if (mode === "organizer") {
+        supabase.channel(HOST_TOPIC, { config: { private: false } }).on("broadcast", { event: "votes_updated" }, onVotesUpdated).subscribe();
+      }
     });
 
     return () => {
       cancelled = true;
-      channelRef.current = null;
-      if (realtimeChannel) void realtimeChannel.unsubscribe();
+      stopPolling();
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      if (supabase) void supabase.removeAllChannels();
       if (resultsRefresh.current !== null) window.clearTimeout(resultsRefresh.current);
     };
   }, [mode, loadOrganizerResults]);
@@ -281,11 +295,23 @@ export default function PartyApp({ mode }: { mode: Mode }) {
     setVotes((previous) => [...previous.filter((vote) => vote.entryId !== currentEntry.id), { entryId: currentEntry.id, score }]);
   }
 
-  function sendReaction(kind: string) {
-    if (reactionCooldown || !currentEntry || status !== "voting") return;
-    setReactionCooldown(true);
-    window.setTimeout(() => setReactionCooldown(false), REACTION_COOLDOWN_MS);
-    void channelRef.current?.send({ type: "broadcast", event: "reaction", payload: { kind, entry_id: currentEntry.id } });
+  function flushReactions() {
+    reactionTimer.current = null;
+    const counts = pendingReactions.current;
+    pendingReactions.current = {};
+    if (!remoteMode || !Object.keys(counts).length) return;
+    void fetch("/api/react", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ counts }), keepalive: true }).catch(() => {});
+  }
+
+  function sendReaction(kind: ReactionKind, emoji: string) {
+    if (!currentEntry) return;
+    pendingReactions.current[kind] = (pendingReactions.current[kind] ?? 0) + 1;
+    reactionTimer.current ??= window.setTimeout(flushReactions, REACTION_SEND_MS);
+    // A little burst on the phone so every tap feels like it landed.
+    burstId.current += 1;
+    const id = burstId.current;
+    setReactionBursts((previous) => [...previous.slice(-14), { id, emoji, x: 10 + ((id * 37) % 80) }]);
+    window.setTimeout(() => setReactionBursts((previous) => previous.filter((burst) => burst.id !== id)), 1200);
   }
 
   async function pauseOrResume() {
@@ -501,12 +527,13 @@ export default function PartyApp({ mode }: { mode: Mode }) {
               <b>React on The Big Screen</b>
               <div className="sti-react-row">
                 {REACTIONS.map((reaction) => (
-                  <button key={reaction.kind} type="button" className="sti-react-button" onClick={() => sendReaction(reaction.kind)} disabled={reactionCooldown || status !== "voting"} aria-label={`Send ${reaction.label} to the big screen`}>
+                  <button key={reaction.kind} type="button" className="sti-react-button" onClick={() => sendReaction(reaction.kind, reaction.emoji)} aria-label={`Send ${reaction.label} to the big screen`}>
                     <span aria-hidden="true">{reaction.emoji}</span>
                   </button>
                 ))}
               </div>
-              <small>{reactionCooldown ? "Sent! Next one in a sec" : "Reactions don't count as votes"}</small>
+              <small>Tap as much as you like · reactions don&apos;t count as votes</small>
+              <div className="sti-bursts" aria-hidden="true">{reactionBursts.map((burst) => <span key={burst.id} style={{ left: `${burst.x}%` }}>{burst.emoji}</span>)}</div>
             </div>
 
             {status === "paused" && <div className="sti-paused"><b>Voting paused</b><small>Hold on, the host will resume in a moment.</small></div>}
@@ -566,6 +593,7 @@ export default function PartyApp({ mode }: { mode: Mode }) {
         <nav className="mode-switch" aria-label="Pages">
           <Link className="selected" href="/host">Host desk</Link>
           <Link href="/" target="_blank" rel="noreferrer">Guest view ↗</Link>
+          <Link href="/live" target="_blank" rel="noreferrer">Live screen ↗</Link>
           <Link href="/reveal" target="_blank" rel="noreferrer">Reveal ↗</Link>
         </nav>
       </header>
