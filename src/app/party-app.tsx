@@ -29,6 +29,14 @@ function getVoterKey() {
 }
 
 const categories = CATEGORIES;
+const REACTIONS = [
+  { kind: "ghost", emoji: "👻", label: "Spooky" },
+  { kind: "fire", emoji: "🔥", label: "Fire" },
+  { kind: "heart", emoji: "🖤", label: "Love" },
+  { kind: "skull", emoji: "💀", label: "Dead" },
+  { kind: "clap", emoji: "👏", label: "Applause" },
+] as const;
+const REACTION_COOLDOWN_MS = 2500;
 const starterEntries: Entry[] = [
   { id: "f-1", contestantName: "Taylor", costumeName: "The Office Goblin", category: "Funniest", isGroup: false },
   { id: "f-2", contestantName: "Morad and the gang", costumeName: "Shaun The Sheeps", category: "Funniest", isGroup: true },
@@ -64,7 +72,7 @@ export default function PartyApp({ mode }: { mode: Mode }) {
   const [actionError, setActionError] = useState("");
   const [votes, setVotes] = useState<Vote[]>([]);
   const [organizerResults, setOrganizerResults] = useState<OrganizerResult[]>([]);
-  const [hasVoted, setHasVoted] = useState(false);
+  const [, setHasVoted] = useState(false);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
   const [newContestantName, setNewContestantName] = useState("");
   const [newCostumeName, setNewCostumeName] = useState("");
@@ -72,6 +80,8 @@ export default function PartyApp({ mode }: { mode: Mode }) {
   const [newIsGroup, setNewIsGroup] = useState(false);
   const resultsRefresh = useRef<number | null>(null);
   const currentEntryRef = useRef<string | null>(null);
+  const channelRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(null);
+  const [reactionCooldown, setReactionCooldown] = useState(false);
   const [notice, setNotice] = useState("Preview mode · Supabase is not connected yet");
 
   const currentEntry = entries.find((entry) => entry.id === currentEntryId) ?? null;
@@ -170,13 +180,16 @@ export default function PartyApp({ mode }: { mode: Mode }) {
           }
         })
         .on("broadcast", { event: "entries_updated" }, () => { void loadState(); })
+        // Reactions are fire-and-forget broadcasts for the big screen; nothing is written to the database.
         .subscribe((connectionStatus) => {
           if (connectionStatus === "SUBSCRIBED") void loadState();
         });
+      channelRef.current = realtimeChannel;
     });
 
     return () => {
       cancelled = true;
+      channelRef.current = null;
       if (realtimeChannel) void realtimeChannel.unsubscribe();
       if (resultsRefresh.current !== null) window.clearTimeout(resultsRefresh.current);
     };
@@ -266,6 +279,13 @@ export default function PartyApp({ mode }: { mode: Mode }) {
       return;
     }
     setVotes((previous) => [...previous.filter((vote) => vote.entryId !== currentEntry.id), { entryId: currentEntry.id, score }]);
+  }
+
+  function sendReaction(kind: string) {
+    if (reactionCooldown || !currentEntry || status !== "voting") return;
+    setReactionCooldown(true);
+    window.setTimeout(() => setReactionCooldown(false), REACTION_COOLDOWN_MS);
+    void channelRef.current?.send({ type: "broadcast", event: "reaction", payload: { kind, entry_id: currentEntry.id } });
   }
 
   async function pauseOrResume() {
@@ -430,74 +450,125 @@ export default function PartyApp({ mode }: { mode: Mode }) {
     await loadOrganizerResults();
   }
 
+  if (mode === "audience") {
+    const timeUp = status === "waiting" && currentEntry !== null;
+    const live = (status === "voting" || status === "paused") && currentEntry !== null;
+    const tickerEntries = live ? [currentEntry, ...upNextEntries] : upNextEntries;
+    const urgent = status === "voting" && remaining <= 3;
+    const timerSeconds = live ? remaining : timeUp ? 0 : ROUND_SECONDS;
+    const categoryEmoji: Record<Category, string> = { Funniest: "🤡", Prettiest: "🦋", Group: "👯", Scariest: "😈" };
+    const shownCategory = live || timeUp ? currentEntry?.category : upNextEntries[0]?.category;
+    return (
+      <main className="sti-shell">
+        <header className="sti-header">
+          <div className="sti-brand" aria-label="Scare to Impress"><span>SCARE <i>to</i></span><b>Impress</b></div>
+          <span className="sti-live">LIVE</span>
+        </header>
+
+        <div className="sti-now">
+          <div className="sti-now-label">
+            <small>{live ? "NOW WALKING" : timeUp ? "JUST WALKED" : "UP NEXT"}</small>
+            {shownCategory && <span className="sti-category">{CATEGORY_LABELS[shownCategory]} {categoryEmoji[shownCategory]}</span>}
+          </div>
+          <div className={`sti-timer ${urgent ? "urgent" : ""}`} aria-label={`${timerSeconds} seconds ${live ? "remaining" : "per round"}`}>
+            <small>Time Left</small>
+            <b>{timerSeconds} s</b>
+          </div>
+        </div>
+
+        {live && currentEntry ? (
+          <section className="sti-stage">
+            <div className="sti-tags"><span className="slot-tag">{slots.get(currentEntry.id)}</span>{currentEntry.isGroup && <span className="group-tag">GROUP</span>}</div>
+            <p className="sti-name">{currentEntry.contestantName}</p>
+            <p className="sti-as">as</p>
+            <h1 className="sti-costume">{currentEntry.costumeName}</h1>
+
+            <div className="sti-vote-head">
+              <b>Tap to Vote</b>
+              <span>{selectedScore ? <>you chose <strong>{PUMPKIN_LABELS[selectedScore - 1]}</strong></> : <>meh → WOW!!!</>}</span>
+            </div>
+            <div className="sti-pumpkins" role="group" aria-label="Choose a score from one to five pumpkins">
+              {[1, 2, 3, 4, 5].map((score) => (
+                <button key={score} type="button" className={`sti-pumpkin ${selectedScore !== null && score <= selectedScore ? "lit" : ""} ${selectedScore === score ? "picked" : ""} ${selectedScore === null ? "idle" : ""}`} onClick={() => void submitVote(score)} disabled={status !== "voting"} aria-pressed={selectedScore === score} aria-label={`${PUMPKIN_LABELS[score - 1]}, ${score} out of 5`}>
+                  <span aria-hidden="true">🎃</span>
+                </button>
+              ))}
+            </div>
+            <p className="sti-vote-note">{selectedScore ? "Saved. Tap another pumpkin to change it until time's up." : "Your vote counts the moment you tap."}</p>
+            {actionError && <p className="sti-error">{actionError}</p>}
+
+            <div className="sti-react">
+              <b>React on The Big Screen</b>
+              <div className="sti-react-row">
+                {REACTIONS.map((reaction) => (
+                  <button key={reaction.kind} type="button" className="sti-react-button" onClick={() => sendReaction(reaction.kind)} disabled={reactionCooldown || status !== "voting"} aria-label={`Send ${reaction.label} to the big screen`}>
+                    <span aria-hidden="true">{reaction.emoji}</span>
+                  </button>
+                ))}
+              </div>
+              <small>{reactionCooldown ? "Sent! Next one in a sec" : "Reactions don't count as votes"}</small>
+            </div>
+
+            {status === "paused" && <div className="sti-paused"><b>Voting paused</b><small>Hold on, the host will resume in a moment.</small></div>}
+          </section>
+        ) : timeUp && currentEntry ? (
+          <section className="sti-stage">
+            <div className="sti-tags"><span className="slot-tag">{slots.get(currentEntry.id)}</span>{currentEntry.isGroup && <span className="group-tag">GROUP</span>}</div>
+            <p className="sti-name">{currentEntry.contestantName}</p>
+            <p className="sti-as">as</p>
+            <h1 className="sti-costume">{currentEntry.costumeName}</h1>
+            <div className="sti-locked">
+              <small>TIME&apos;S UP · VOTE LOCKED</small>
+              {selectedScore ? <><span>Your vote</span><b>{PUMPKIN_LABELS[selectedScore - 1]}</b><span>{selectedScore} of 5 pumpkins</span></> : <><b>No vote</b><span>Catch the next one!</span></>}
+            </div>
+            <p className="sti-vote-note">Winners are revealed at the end of the night.</p>
+          </section>
+        ) : (
+          <section className="sti-stage sti-waiting">
+            <h1>Wait a moment, <i>judges</i></h1>
+            <p>The next contestant is getting ready. Keep this page open and it&apos;ll update by itself.</p>
+          </section>
+        )}
+
+        <div className="sti-ticker" aria-label="Upcoming contestants">
+          <span className="sti-ticker-label">UP NEXT</span>
+          <div className="sti-ticker-window">
+            {tickerEntries.length ? (
+              <div className="sti-ticker-track">
+                {[0, 1].map((copy) => (
+                  <div className="sti-ticker-set" key={copy} aria-hidden={copy === 1}>
+                    {tickerEntries.map((entry) => entry && (
+                      <span className="sti-ticker-entry" key={`${copy}-${entry.id}`}>
+                        <span className="sti-ticker-slot">{slots.get(entry.id)}</span>{entry.contestantName} <i>as</i> <b>{entry.costumeName}</b><em>|</em>
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : <span className="sti-ticker-entry">The next contestant is getting ready</span>}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="party-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
       <header className="topbar">
-        <a className="brand" href="#home" aria-label="Costume Party home">
+        <Link className="brand" href="/host" aria-label="Scare to Impress host desk">
           <span className="brand-mark">🎃</span>
-          <span>Costume <b>Party</b></span>
-        </a>
+          <span>Scare to <b>Impress</b></span>
+        </Link>
         <div className="connection-pill"><span className="status-dot" /> {notice}</div>
-        {mode === "organizer" && <nav className="mode-switch" aria-label="Pages">
+        <nav className="mode-switch" aria-label="Pages">
           <Link className="selected" href="/host">Host desk</Link>
           <Link href="/" target="_blank" rel="noreferrer">Guest view ↗</Link>
-        </nav>}
+        </nav>
       </header>
 
-      {mode === "audience" ? (
-        <section className="audience-view" id="home">
-          <div className="audience-masthead"><span>HALLOWEEN COSTUME WALK</span><span className="live-tag"><i /> LIVE</span></div>
-          <div className="category-rail" aria-label="Costume categories">
-            {categories.map((category) => {
-              const activeCategory = status === "waiting" ? upNextEntries[0]?.category : currentEntry?.category;
-              const categoryEmoji: Record<Category, string> = { Funniest: "🤡", Prettiest: "🦋", Group: "👯", Scariest: "👹" };
-              return <span key={category} className={`rail-category ${activeCategory === category ? "active" : ""}`}><i>{categoryEmoji[category]}</i>{CATEGORY_LABELS[category]}</span>;
-            })}
-          </div>
-          {status === "waiting" || !currentEntry ? (
-            <div className="waiting-card">
-              <div className="waiting-copy">
-                <span className="small-label">STANDBY</span>
-                <h1>Wait a moment...</h1>
-                <p className="judges-word">judges</p>
-                <p className="instruction">The next contestant is getting ready.<br />Keep this page open.</p>
-                {upNextEntries[0] && <div className="next-preview"><small>UP NEXT · {slots.get(upNextEntries[0].id)}{upNextEntries[0].isGroup ? " · GROUP" : ""}</small><strong>{upNextEntries[0].contestantName}</strong><span>as {upNextEntries[0].costumeName}</span></div>}
-              </div>
-              <div className="waiting-web-mark" aria-hidden="true">✳</div>
-            </div>
-          ) : (
-            <div className="vote-card">
-              <div className="vote-topline"><div className="walking-label"><small>NOW WALKING</small><span className={`category-chip ${currentEntry.category.toLowerCase()}`}>{CATEGORY_LABELS[currentEntry.category]}</span></div><span className={`vote-clock ${remaining <= 5 ? "urgent" : ""}`} aria-label={`${remaining} seconds remaining`}><small>TIME LEFT</small><b>{remaining} s</b></span></div>
-              <div className="vote-heading">
-                <div className="vote-title">
-                  <div className="contestant-tags"><span className="slot-tag">{slots.get(currentEntry.id)}</span>{currentEntry.isGroup && <span className="group-tag">GROUP</span>}</div>
-                  <p><span className="contestant-highlight">{currentEntry.contestantName}</span> <i>as</i></p>
-                  <h1><span className="costume-highlight">{currentEntry.costumeName}</span></h1>
-                </div>
-              </div>
-              <div className="score-panel">
-                <div className="score-prompt"><b>TAP A PUMPKIN TO VOTE</b><small>YOU CAN CHANGE IT UNTIL TIME&apos;S UP</small></div>
-                <div className="score-row" aria-label="Choose a score from one to five pumpkins">
-                  {[1, 2, 3, 4, 5].map((score) => (
-                    <button key={score} className={`pumpkin-button ${selectedScore === score ? "selected" : ""} ${selectedScore !== null && score < selectedScore ? "prior-lit" : ""}`} onClick={() => void submitVote(score)} disabled={status !== "voting"} aria-pressed={selectedScore === score} aria-label={`${PUMPKIN_LABELS[score - 1]}, ${score} out of 5`}>
-                      <span>🎃</span><small>{score}</small><em className="pumpkin-label">{PUMPKIN_LABELS[score - 1]}</em>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {hasVoted && selectedScore !== null && <div className="thank-you"><span>🕯️</span><div><b>Your vote: {PUMPKIN_LABELS[selectedScore - 1]}</b><small>Tap another pumpkin to change it</small></div></div>}
-              {actionError && <p className="form-error">{actionError}</p>}
-              <div className="live-footer">
-                <div className="vote-count"><small>VOTES</small><b>{displayedVoteCount}</b></div>
-              </div>
-              {status === "paused" && <div className="pause-overlay"><span>Ⅱ</span><b>Voting paused</b><small>Please wait for the organizer.</small></div>}
-            </div>
-          )}
-        </section>
-      ) : (
         <section className="organizer-view">
           <div className="organizer-intro"><div><span className="small-label">CONTROL ROOM</span><h1>Organizer <em>desk</em></h1><p>Run the walk one costume at a time.</p></div><div className="preview-badge"><span /> {remoteMode ? organizerAuthed ? "ORGANIZER SIGNED IN" : "SIGN-IN REQUIRED" : "PREVIEW CONTROLS"}</div></div>
           {remoteMode && !organizerAuthed ? (
@@ -556,16 +627,8 @@ export default function PartyApp({ mode }: { mode: Mode }) {
             </div>
           </div>}
         </section>
-      )}
 
-      {mode === "audience" && <div className="broadcast-ticker" aria-label="Upcoming contestants">
-        <span className="ticker-label">UP NEXT</span>
-        <div className="ticker-window">
-          {upNextEntries.length ? <div className="ticker-track">{[0, 1].map((copy) => <div className="ticker-set" key={copy} aria-hidden={copy === 1}>{upNextEntries.map((entry) => <span className="ticker-entry" key={`${copy}-${entry.id}`}><span className="slot-tag">{slots.get(entry.id)}</span><b>{entry.contestantName}</b><i>as</i><strong>{entry.costumeName}</strong>{entry.isGroup && <span className="group-tag">GROUP</span>}<em>{CATEGORY_LABELS[entry.category]}</em></span>)}</div>)}</div> : <span className="ticker-empty">The next contestant is getting ready</span>}
-        </div>
-      </div>}
-
-      <footer className="page-footer"><span>MADE FOR A LITTLE HALLOWEEN MAGIC</span><span>✦</span><span>ONE VOTE PER COSTUME</span><span className="footer-spacer" /><span>ROOM 13 · COSTUME PARTY</span></footer>
+      <footer className="page-footer"><span>SCARE TO IMPRESS · HOST DESK</span><span className="footer-spacer" /><span>GUESTS VOTE AT THE MAIN PAGE</span></footer>
     </main>
   );
 }

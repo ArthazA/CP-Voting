@@ -80,6 +80,8 @@ The organizer desk saves a shared planned order. Up/down controls update the que
 
 The host desk is at **`/host`** (for example `https://voting.company.example/host`). Guests at `/` no longer see an Organizer button. Rounds are 10 seconds (`ROUND_SECONDS` in `src/lib/event-config.ts`), and the walk order is Funniest → Prettiest → Best Group → Scariest with 8/8/6/8 slots.
 
+Guest reaction buttons send a `reaction` broadcast (`{ kind, entry_id }`, kinds `ghost`, `fire`, `heart`, `skull`, `clap`) on the `costume-party-live` channel. Nothing is stored; a big-screen page can subscribe to that event to float them over the live feed. Each guest is limited to one reaction every 2.5 seconds.
+
 After the proxy is configured, open the public URL, sign in at **`/host`**, add a test contestant and costume, reorder the planned queue, start a round, and check that an iPhone on the event Wi-Fi follows the same session and ticker. Generate the attendee QR code from the final public URL.
 
 ## Updating the deployment
