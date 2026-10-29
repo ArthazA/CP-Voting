@@ -566,6 +566,7 @@ export default function PartyApp({ mode }: { mode: Mode }) {
         <nav className="mode-switch" aria-label="Pages">
           <Link className="selected" href="/host">Host desk</Link>
           <Link href="/" target="_blank" rel="noreferrer">Guest view ↗</Link>
+          <Link href="/reveal" target="_blank" rel="noreferrer">Reveal ↗</Link>
         </nav>
       </header>
 

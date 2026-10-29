@@ -570,3 +570,74 @@ html:has(.sti-shell), body:has(.sti-shell) { background:#070305; }
 @keyframes sti-tick { from { transform:translateX(0); } to { transform:translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { .sti-ticker-track { animation:none; } .sti-pumpkin,.sti-react-button,.sti-timer { transition:none; } }
 @media (max-width:360px) { .sti-shell { padding:22px 16px 0; } .sti-ticker { margin-left:-16px; margin-right:-16px; } .sti-pumpkin { width:48px; height:48px; } .sti-pumpkin span { font-size:30px; } .sti-react-button { width:44px; } }
+
+/* ===== Scare to Impress · big-screen winner reveal (/reveal) ===== */
+html:has(.rv-shell), body:has(.rv-shell) { background:#070305; }
+.rv-shell { --rv-green:#8cff66; --rv-dim:#6fae5c; --rv-orange:#ff9a1f; --rv-line:#2b4a22;
+  height:100vh; height:100dvh; box-sizing:border-box; display:flex; flex-direction:column; gap:2vh; padding:4vh 4vw 2.5vh; overflow:hidden;
+  color:var(--rv-green); font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+  background:radial-gradient(ellipse 90% 60% at 50% 0%, #1d0846 0%, #0c0420 45%, #070305 80%); }
+.rv-top { display:flex; justify-content:space-between; align-items:center; gap:2vw; }
+.rv-brand { color:var(--rv-orange); font-size:clamp(18px,2vw,32px); line-height:1; white-space:nowrap; }
+.rv-brand i,.rv-heading em,.rv-row-name i,.rv-card-name i,.rv-end h1 { font-family:"Pinyon Script",cursive; font-style:normal; font-weight:400; }
+.rv-brand i { font-size:1.35em; }
+.rv-progress { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.rv-progress span { padding:6px 12px; border-radius:999px; border:1px solid var(--rv-line); color:var(--rv-dim); font-size:clamp(10px,.85vw,14px); font-weight:700; letter-spacing:.1em; }
+.rv-progress span.now { background:var(--rv-orange); border-color:var(--rv-orange); color:#070305; }
+.rv-progress span.done { border-color:var(--rv-orange); color:var(--rv-orange); }
+.rv-heading { display:flex; justify-content:space-between; align-items:baseline; gap:2vw; }
+.rv-heading > div { display:flex; align-items:baseline; gap:1.4vw; }
+.rv-heading h1 { margin:0; font-size:clamp(32px,3.8vw,72px); font-weight:700; }
+.rv-heading em { color:var(--rv-orange); font-size:clamp(28px,3.2vw,62px); line-height:1; }
+.rv-heading p { margin:0; font-size:clamp(14px,1.3vw,24px); text-align:right; }
+.rv-lineup { flex:1; min-height:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(4,minmax(0,1fr)); gap:1.4vh 1.8vw; }
+.rv-row { display:flex; align-items:center; gap:1.2vw; padding:0 1.3vw; border:1px solid var(--rv-line); border-radius:14px; min-height:0; transition:background .3s,border-color .3s; }
+.rv-row.counting { border-color:var(--rv-green); background:#0f1a0c; }
+.rv-row.top { border:2px solid var(--rv-orange); background:#24130a; }
+.rv-slot { flex-shrink:0; padding:4px 10px; border-radius:6px; background:var(--rv-orange); color:#070305; font-size:clamp(13px,1.2vw,22px); font-weight:700; }
+.rv-row-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:.8vh; }
+.rv-row-name { font-size:clamp(14px,1.45vw,28px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rv-row-name i { font-size:1.2em; }
+.rv-bar { height:6px; border-radius:3px; background:#1b2a16; overflow:hidden; }
+.rv-bar.thick { height:14px; border-radius:7px; }
+.rv-bar span { display:block; height:100%; border-radius:inherit; background:var(--rv-green); }
+.rv-bar span.hatched { background:repeating-linear-gradient(90deg,var(--rv-orange) 0 8px,transparent 8px 14px); }
+.rv-card.winner .rv-bar span { background:var(--rv-orange); }
+.rv-row-score { flex-shrink:0; width:8.5vw; text-align:right; font-size:clamp(20px,2.4vw,46px); font-weight:700; font-variant-numeric:tabular-nums; color:var(--rv-dim); }
+.rv-row-score.live { color:var(--rv-green); }
+.rv-row-score.top { color:var(--rv-orange); font-size:clamp(16px,1.8vw,34px); }
+.rv-stage { flex:1; min-height:0; display:grid; gap:1.8vw; }
+.rv-card { display:flex; flex-direction:column; gap:2vh; padding:3.2vh 2vw; border:1px solid var(--rv-line); border-radius:24px; animation:rv-rise .5s ease-out both; transition:opacity .4s,border-color .3s,background .3s,box-shadow .3s; }
+.rv-card.live { border:2px solid var(--rv-green); background:#0f1a0c; }
+.rv-card.winner { border:3px solid var(--rv-orange); background:#24130a; box-shadow:0 0 60px #ff9a1f55; }
+.rv-card.out { animation:none; opacity:.4; }
+.rv-card-top { display:flex; justify-content:space-between; align-items:center; min-height:40px; }
+.rv-badge { padding:6px 14px; border-radius:999px; border:1px solid var(--rv-green); font-size:clamp(12px,1.05vw,20px); font-weight:700; letter-spacing:.12em; animation:rv-pop .7s cubic-bezier(.2,1.4,.4,1) both; }
+.rv-badge.winner { background:var(--rv-orange); border-color:var(--rv-orange); color:#070305; }
+.rv-card-name { display:flex; flex-direction:column; gap:.3vh; }
+.rv-card-name span { font-size:clamp(18px,1.9vw,36px); }
+.rv-card-name i { font-size:clamp(22px,2.2vw,42px); line-height:1; }
+.rv-card-name b { font-size:clamp(22px,2.3vw,44px); line-height:1.1; color:var(--rv-orange); }
+.rv-card-score { margin-top:auto; display:flex; flex-direction:column; gap:1.5vh; }
+.rv-big { font-size:clamp(48px,5.6vw,112px); font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+.rv-big small { font-size:.32em; font-weight:400; color:var(--rv-green); }
+.rv-big.hidden { color:var(--rv-dim); }
+.rv-big.glow { text-shadow:0 0 24px #ff9a1f88; }
+.rv-card.winner .rv-big { color:var(--rv-orange); font-size:clamp(58px,6.8vw,136px); }
+.rv-end { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2vh; text-align:center; animation:rv-pop .7s cubic-bezier(.2,1.4,.4,1) both; }
+.rv-end h1 { margin:0; color:var(--rv-orange); font-size:clamp(64px,8vw,160px); line-height:1.1; }
+.rv-end p { margin:0; font-size:clamp(16px,1.8vw,34px); }
+.rv-controls { display:flex; justify-content:space-between; align-items:center; gap:16px; opacity:.35; transition:opacity .2s; }
+.rv-controls:hover,.rv-controls:focus-within { opacity:1; }
+.rv-controls > span { font-size:13px; color:var(--rv-dim); }
+.rv-controls > div { display:flex; gap:10px; }
+.rv-controls button { padding:10px 20px; border-radius:999px; border:1px solid var(--rv-line); background:transparent; color:var(--rv-green); font:inherit; font-size:15px; cursor:pointer; }
+.rv-controls button.primary { border:none; background:var(--rv-orange); color:#070305; font-weight:700; }
+.rv-controls button:focus-visible { outline:3px solid var(--rv-orange); outline-offset:2px; }
+.rv-message { align-items:center; justify-content:center; text-align:center; }
+.rv-message h1 { margin:0; font-size:48px; }
+.rv-message p { margin:0; font-size:20px; }
+.rv-message a { color:var(--rv-orange); }
+@keyframes rv-rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+@keyframes rv-pop { from { opacity:0; transform:scale(.85); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { .rv-card,.rv-badge,.rv-end { animation:none; } }

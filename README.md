@@ -82,6 +82,8 @@ The host desk is at **`/host`** (for example `https://voting.company.example/hos
 
 Guest reaction buttons send a `reaction` broadcast (`{ kind, entry_id }`, kinds `ghost`, `fire`, `heart`, `skull`, `clap`) on the `costume-party-live` channel. Nothing is stored; a big-screen page can subscribe to that event to float them over the live feed. Each guest is limited to one reaction every 2.5 seconds.
 
+**Winner reveal:** open `/reveal` on the big-screen computer after signing in at `/host` in the same browser. It reveals each category in walk order, then Best Solo (the top solo costume that didn't win a category). Press → or Space to advance, ← to go back, R to replay a step and F for full screen. Ties go to more votes, then the earlier walker. Add `?duel=15` to change the final climb from 10 to 15 seconds, or open `/reveal?demo` to rehearse with sample scores.
+
 After the proxy is configured, open the public URL, sign in at **`/host`**, add a test contestant and costume, reorder the planned queue, start a round, and check that an iPhone on the event Wi-Fi follows the same session and ticker. Generate the attendee QR code from the final public URL.
 
 ## Updating the deployment
