@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
-import { CATEGORIES, CATEGORY_LABELS, HOST_TOPIC, LIVE_TOPIC, PUMPKIN_LABELS, REACTIONS, ROUND_SECONDS, SLOT_LIMIT, SLOT_PREFIX, categoryRank, inWalkOrder, type Category, type ReactionCounts, type ReactionKind } from "@/lib/event-config";
+import { CATEGORIES, CATEGORY_LABELS, HOST_TOPIC, LIVE_TOPIC, PUMPKIN_LABELS, REACTIONS, ROUND_SECONDS, SLOT_PREFIX, categoryRank, inWalkOrder, type Category, type ReactionCounts, type ReactionKind } from "@/lib/event-config";
 import RevealScreen from "./reveal/reveal-screen";
 
 type Entry = { id: string; contestantName: string; costumeName: string; category: Category; isGroup: boolean };
@@ -92,7 +92,6 @@ export default function PartyApp({ mode }: { mode: Mode }) {
   const displayedAverage = remoteMode ? liveAverage : average;
   const displayedVoteCount = remoteMode ? liveVoteCount : entryVotes.length;
   const slots = slotCodes(entries);
-  const categoryCounts = Object.fromEntries(categories.map((category) => [category, entries.filter((entry) => entry.category === category).length])) as Record<Category, number>;
 
   useEffect(() => { currentEntryRef.current = currentEntryId; }, [currentEntryId]);
   const orderAnchorId = status === "waiting" ? lastEntryId ?? currentEntryId : currentEntryId;
@@ -122,7 +121,15 @@ export default function PartyApp({ mode }: { mode: Mode }) {
         const voterKey = getVoterKey();
         const response = await fetch(`/api/state?voterKey=${encodeURIComponent(voterKey)}`, { cache: "no-store" });
         const state = await response.json();
-        if (!response.ok || !state.configured || cancelled) return false;
+        if (cancelled) return false;
+        if (!response.ok) {
+          setNotice(`Event server unavailable (HTTP ${response.status})`);
+          return false;
+        }
+        if (!state.configured) {
+          setNotice("Supabase is not connected on this server");
+          return false;
+        }
         setRemoteMode(true);
         setNotice("Connected · live event state");
         setEntries(inWalkOrder<Entry>(state.entries));
@@ -139,6 +146,7 @@ export default function PartyApp({ mode }: { mode: Mode }) {
         setLiveVoteCount(state.voteCount ?? 0);
         return true;
       } catch {
+        if (!cancelled) setNotice("Cannot reach the event server. Check the address and Wi-Fi.");
         return false;
       }
     };
@@ -162,7 +170,7 @@ export default function PartyApp({ mode }: { mode: Mode }) {
 
     void loadState().then((connected) => {
       if (cancelled) return;
-      if (!connected) { setEntries(starterEntries); return; }
+      if (!connected) { setEntries(starterEntries); startPolling(); return; }
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
       if (!url || !key) { startPolling(); return; }
@@ -386,7 +394,6 @@ export default function PartyApp({ mode }: { mode: Mode }) {
       setNotice(`${contestantName} as ${costumeName} added to ${CATEGORY_LABELS[newCategory]}.`);
       return;
     }
-    if (categoryCounts[newCategory] >= SLOT_LIMIT[newCategory]) { setActionError(`${CATEGORY_LABELS[newCategory]} is full (${SLOT_LIMIT[newCategory]} slots).`); return; }
     const entry: Entry = { id: makeUuid(), contestantName, costumeName, category: newCategory, isGroup: newIsGroup };
     setEntries((previous) => {
       const next = [...previous];
@@ -653,7 +660,7 @@ export default function PartyApp({ mode }: { mode: Mode }) {
                 <label htmlFor="costume-name">Costume name</label>
                 <input id="costume-name" value={newCostumeName} onChange={(event) => setNewCostumeName(event.target.value)} placeholder="e.g. The Velvet Vampire" maxLength={60} required />
                 <label htmlFor="category">Category</label>
-                <select id="category" value={newCategory} onChange={(event) => setNewCategory(event.target.value as Category)}>{categories.map((category) => <option key={category} value={category} disabled={categoryCounts[category] >= SLOT_LIMIT[category]}>{CATEGORY_LABELS[category]} ({categoryCounts[category]}/{SLOT_LIMIT[category]}{categoryCounts[category] >= SLOT_LIMIT[category] ? " · full" : ""})</option>)}</select>
+                <select id="category" value={newCategory} onChange={(event) => setNewCategory(event.target.value as Category)}>{categories.map((category) => <option key={category} value={category}>{CATEGORY_LABELS[category]}</option>)}</select>
                 <label className="group-check"><input type="checkbox" checked={newIsGroup} onChange={(event) => setNewIsGroup(event.target.checked)} /> This is a group</label>
                 <button className="add-button" type="submit">＋ Add contestant</button>
                 {actionError && <p className="form-error">{actionError}</p>}
@@ -668,7 +675,7 @@ export default function PartyApp({ mode }: { mode: Mode }) {
                   const inCategory = entries.filter((entry) => entry.category === category);
                   if (!inCategory.length) return null;
                   return <div className="planned-category" key={category}>
-                    <h3>{CATEGORY_LABELS[category]} <small>{inCategory.length}/{SLOT_LIMIT[category]}</small></h3>
+                    <h3>{CATEGORY_LABELS[category]} <small>{inCategory.length}</small></h3>
                     {inCategory.map((entry, index) => {
                       const result = getEntryResult(entry.id);
                       const isActive = entry.id === currentEntryId && (status === "voting" || status === "paused");

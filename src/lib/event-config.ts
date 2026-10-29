@@ -8,8 +8,6 @@ export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_LABELS: Record<Category, string> = { Funniest: "Funniest", Prettiest: "Prettiest", Scariest: "Scariest" };
 export const SLOT_PREFIX: Record<Category, string> = { Funniest: "F", Prettiest: "P", Scariest: "S" };
-export const SLOT_LIMIT: Record<Category, number> = { Funniest: 8, Prettiest: 8, Scariest: 8 };
-
 export const PUMPKIN_LABELS = ["meh", "ok", "nice", "love it", "WOW!!!"] as const;
 
 export function isCategory(value: unknown): value is Category {

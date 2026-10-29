@@ -1,101 +1,79 @@
-# Costume Party Voting — Server Handoff
+# Costume Party Voting
 
-This archive contains the Next.js app (attendee pages, organizer desk, and API), its public image and sound files, Supabase migrations, dependency lockfile, and the configured `.env.local` file.
+Next.js app for the attendee voting page, private host desk, live screen, and winner reveal. Event state and votes are stored in Supabase.
 
-## Before deployment
+## Run locally
 
-Confirm these details with the server administrator:
+1. In Terminal, go to the project folder:
 
-- SSH hostname, port, and account name
-- The directory where the app will live
-- Node.js **20.9 or newer** and npm on the server
-- The public URL and whether the company proxy will serve the app at the website root or under a child path
-- A company-approved way to keep the app running as a service
+   ```bash
+   cd "/Users/master/Documents/VScode Files/CP Voting"
+   ```
 
-The server administrator is the only person with the SSH private key. They should run the SSH and upload commands below, or provision an authorized account for you. **Do not put an SSH private key in this archive.**
+2. Install the project dependencies:
 
-## 1. Upload the archive
+   ```bash
+   npm ci
+   ```
 
-From a Mac terminal, the authorized person can copy the archive to the server. Replace the placeholders with the company-provided details:
+3. Make sure `.env.local` is in the project root with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `ORGANIZER_PASSWORD`, and `SESSION_SECRET` set. Keep `.env.local` private and out of `public/`.
+
+4. Start the development server:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Open these pages in your browser:
+
+   - `http://localhost:3000/` — attendee page
+   - `http://localhost:3000/host` — private host desk
+   - `http://localhost:3000/live` — big-screen live view
+   - `http://localhost:3000/reveal` — winner reveal
+
+There is intentionally no host link on the attendee page. Bookmark `/host` on your organizer device and sign in with the organizer password.
+
+### Test with an iPhone on the same Wi-Fi
+
+The `dev` script listens on the MacBook’s network interfaces. Find the MacBook’s local IP address (on many Macs, run `ipconfig getifaddr en0`), then open the app from the iPhone using that address.
+
+On the iPhone, open `http://<MACBOOK-LAN-IP>:3000/` (replace the placeholder with the MacBook’s address). Both devices need to be on a network that allows them to connect to each other; the MacBook firewall may ask you to allow incoming connections.
+
+The QR image at `public/vote-qr.png` is static and encodes one fixed URL. For a local phone test, either type the MacBook address directly or temporarily replace that image with a QR code for `http://<MACBOOK-LAN-IP>:3000/`. Restore the event QR image before deploying.
+
+For the live camera test, open `/live` on the MacBook at `http://localhost:3000/live`, allow camera access, and select the iPhone camera. Camera access requires HTTPS or localhost; the MacBook LAN address over plain HTTP is suitable for attendee page testing, but not for the browser camera. Use full screen (F) and mirror the Mac display to the event screen.
+
+## Supabase setup
+
+In the Supabase Dashboard’s SQL Editor, apply migrations once, in order:
+
+- **Fresh database:** run `0001_costume_party.sql` through `0006_reveal_for_everyone.sql` in numeric order.
+- **Existing database:** run only the migration files that have not already completed, continuing in numeric order. If the last completed file was `0003_planned_order.sql`, the next files are `0004_scare_to_impress.sql`, `0005_host_only_vote_updates.sql`, and `0006_reveal_for_everyone.sql`.
+
+The migrations add the base voting tables and live updates, contestant names, planned order, group tags and editable votes, host-only vote-count updates, and shared winner reveal. Do not rerun migrations that already completed successfully.
+
+## Event pages
+
+- `/` is the attendee voting and reaction page.
+- `/host` is the organizer desk. It requires the organizer password and has no link from the attendee screen.
+- `/live` is the big-screen catwalk view, with camera feed, timer, reactions, ticker, and QR image.
+- `/reveal` is the staged winner reveal. The host can share each reveal step with attendee and live screens.
+
+The app supports any number of contestants. It is designed to run at the root of its own host name, for example `https://costume.company.example/`. The paths above are routes on that same subdomain. Hosting it beneath another website path such as `/costume-party/` requires path-prefix support in the app and server configuration.
+
+## Build and run on the company server
+
+Install dependencies and build from the project directory:
 
 ```bash
-scp -P <SSH_PORT> -i <PATH_TO_AUTHORIZED_SSH_KEY> \
-  "Costume-Party-Mentor.zip" \
-  <SERVER_USER>@<SERVER_HOST>:/tmp/
-```
-
-If the key is already loaded in their SSH agent, omit `-i <PATH_TO_AUTHORIZED_SSH_KEY>`.
-
-## 2. Connect and unpack it
-
-```bash
-ssh -p <SSH_PORT> -i <PATH_TO_AUTHORIZED_SSH_KEY> <SERVER_USER>@<SERVER_HOST>
-mkdir -p ~/apps/costume-party/release-1
-unzip /tmp/Costume-Party-Mentor.zip -d ~/apps/costume-party/release-1
-cd ~/apps/costume-party/release-1
-```
-
-The archive includes `.env.local`. Restrict access to it, then install the locked dependencies:
-
-```bash
-chmod 600 .env.local
-node --version
-npm --version
 npm ci --include=dev
-```
-
-Keep `.env.local` in the project root. It contains the Supabase URL and keys, organizer password, and session secret. Do not copy it into `public/` or expose it through the company website.
-
-## 3. Prepare Supabase
-
-The app uses Supabase for event data and live updates. In the Supabase Dashboard’s **SQL Editor**:
-
-- For a database that already has the original app schema, run `0002_contestant_name.sql`, then `0003_planned_order.sql`, once each and in that order.
-- For a fresh database, run `0001_costume_party.sql`, `0002_contestant_name.sql`, and `0003_planned_order.sql`, in that order.
-- Then run `0004_scare_to_impress.sql` once. It adds the Best Group category and GROUP tag, lets guests change their vote until the timer ends, and stops the public live channel from carrying the average. **The vote API needs this migration**, so run it before deploying this version.
-
-Existing costume entries receive `TBA` for their new contestant name. Update those rows in Supabase if they are real entries.
-
-## 4. Build and run the app
-
-Build from the project directory:
-
-```bash
 npm run build
 ```
 
-For a quick foreground run behind a reverse proxy on the same server:
+Start the built app behind the company reverse proxy:
 
 ```bash
 npm run start -- --hostname 127.0.0.1 --port 3000
 ```
 
-The terminal must stay open while this command runs; `Ctrl+C` stops the app. For event use, have the server administrator register the command with the company’s service manager so it starts after a reboot and restarts if it exits. Ask them to configure the company reverse proxy to forward the public app URL to `http://127.0.0.1:3000`.
-
-## Public URL and child paths
-
-The current app expects the website root of its host, such as `https://voting.company.example/`. It uses root-relative API and media paths. If the company wants to mount it beneath another site, such as `https://company.example/costume-party/`, the app needs a matching Next.js `basePath` and prefixed API/media paths **before it is built**. The server administrator should provide the exact public path so that configuration can be set. A reverse-proxy rule alone will not make the current root-relative paths work under a child path.
-
-The organizer desk saves a shared planned order. Up/down controls update the queue; attendee screens display the upcoming contestants in a broadcast-style scrolling ticker. The first migration with this feature is `0003_planned_order.sql`.
-
-The host desk is at **`/host`** (for example `https://voting.company.example/host`). Guests at `/` no longer see an Organizer button. Rounds are 20 seconds (`ROUND_SECONDS` in `src/lib/event-config.ts`). The categories walk Funniest → Prettiest → Scariest (8 slots each), and each category has its own walk order on the host desk. Groups compete in those categories with a GROUP tag; there is no separate Best Group award.
-
-Guest reaction buttons send a `reaction` broadcast (`{ kind, entry_id }`, kinds `ghost`, `fire`, `heart`, `skull`, `clap`) on the `costume-party-live` channel. Nothing is stored; a big-screen page can subscribe to that event to float them over the live feed. Each guest is limited to one reaction every 2.5 seconds.
-
-**Live catwalk screen:** open `/live` in Chrome on the Mac that drives the TVs. Plug the iPhone into that Mac by USB (Continuity Camera: same Apple ID, iOS 16+, macOS 13+), allow the camera, and pick the iPhone from the menu (move the mouse to show it; it hides after 3 seconds). "Share a window instead…" captures a window (e.g. QuickTime showing the iPhone) as a backup. The page shows who's walking, the timer, a QR code for the current site address, a reaction tally and guests' reactions floating up. Press F for full screen. Cameras need HTTPS (or localhost).
-
-**Reactions:** guests can tap as often as they like. Each phone bundles its taps and posts them to `/api/react` about once a second; the server merges everyone's taps and forwards them to the big screen on the `costume-party-reactions` topic at most twice a second. Nothing is stored.
-
-**Run `0005_host_only_vote_updates.sql` once** (after 0004). It sends live vote counts to the host desk only instead of to every guest, which keeps a 220-guest night inside Supabase's realtime limits (Free plan: 200 connections, 100 messages/second). Phones that can't open a live connection check in every 3 seconds instead.
-
-**Run `0006_reveal_for_everyone.sql` once** (after 0005). It removes the Best Group category (any Group entries move to Funniest) and adds the reveal fields used below.
-
-**Winner reveal for everyone:** on the host desk, **Show winner reveal to everyone** switches every guest phone and the `/live` screen to the reveal and opens the reveal controls (`/reveal`) in a new tab. Each step you take there plays on every screen at the same time. **Hide winners · back to voting** switches everyone back. Results are only readable by guests while the reveal is on.
-
-**Winner reveal:** open `/reveal` on the big-screen computer after signing in at `/host` in the same browser. It reveals each category in walk order, then Best Solo (the top solo costume that didn't win a category). Press → or Space to advance, ← to go back, R to replay a step and F for full screen. Ties go to more votes, then the earlier walker. Add `?duel=15` to change the final climb from 10 to 15 seconds, or open `/reveal?demo` to rehearse with sample scores.
-
-After the proxy is configured, open the public URL, sign in at **`/host`**, add a test contestant and costume, reorder the planned queue, start a round, and check that an iPhone on the event Wi-Fi follows the same session and ticker. Generate the attendee QR code from the final public URL.
-
-## Updating the deployment
-
-Upload a fresh archive into a new release directory, install dependencies, build, then ask the administrator to point the service at that release and restart it. Preserve the server’s `.env.local` if deployment credentials have changed since this archive was made.
+For the event, ask the server administrator to configure the company service manager to keep the app running and restart it if needed. The reverse proxy should route the app’s dedicated subdomain to `http://127.0.0.1:3000`. Keep `.env.local` on the server with restricted permissions; do not include it in a public archive or place it under `public/`.

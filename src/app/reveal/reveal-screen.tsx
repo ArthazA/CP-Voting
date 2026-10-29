@@ -11,7 +11,6 @@ type Step = "lineup" | "count" | "stage" | "third" | "duel";
 const STAGGER = 0.8;
 const COUNT = 1.4;
 const THIRD = 2.5;
-const LINEUP_MAX = 8;
 
 const easeOut = (x: number) => 1 - Math.pow(1 - Math.min(Math.max(x, 0), 1), 3);
 const fmt = (value: number) => value.toFixed(2);
@@ -42,7 +41,7 @@ function buildRounds(results: Result[]): Round[] {
   // Best Solo: the highest-scoring solo costume that didn't already win a category.
   const eligible = rank(contestants.filter((contestant) => !contestant.isGroup && !winners.has(contestant.id) && contestant.votes > 0));
   if (eligible.length) {
-    const lineup = eligible.slice(0, LINEUP_MAX).sort((a, b) => a.walk - b.walk);
+    const lineup = [...eligible].sort((a, b) => a.walk - b.walk);
     rounds.push({ key: "solo", title: "Best Solo", note: "Top solo scores from contestants who didn't win a category", lineup, top: eligible.slice(0, 3) });
   }
   return rounds;

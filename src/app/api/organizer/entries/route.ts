@@ -1,6 +1,6 @@
 import { isOrganizer } from "@/lib/organizer-auth";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase-admin";
-import { CATEGORY_LABELS, SLOT_LIMIT, categoryRank, inWalkOrder, isCategory } from "@/lib/event-config";
+import { categoryRank, inWalkOrder, isCategory } from "@/lib/event-config";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -21,10 +21,6 @@ export async function POST(request: Request) {
       .order("planned_order");
     if (existingError) throw existingError;
     const categoryCount = (existing ?? []).filter((entry) => entry.category === category).length;
-    if (categoryCount >= SLOT_LIMIT[category]) {
-      return Response.json({ error: `${CATEGORY_LABELS[category]} is full (${SLOT_LIMIT[category]} slots).` }, { status: 409 });
-    }
-
     const { data, error } = await supabase.from("costume_entries").insert({ contestant_name: contestantName, display_name: costumeName, category, is_group: isGroup, sort_order: categoryCount, planned_order: existing?.length ?? 0 }).select("id, contestant_name, display_name, category, is_group").single();
     if (error) throw error;
 

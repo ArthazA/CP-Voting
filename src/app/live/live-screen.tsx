@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import QRCode from "qrcode";
 import { CATEGORY_LABELS, LIVE_TOPIC, REACTIONS, REACTIONS_TOPIC, SLOT_PREFIX, inWalkOrder, type Category, type ReactionCounts, type ReactionKind } from "@/lib/event-config";
 import RevealScreen from "../reveal/reveal-screen";
 
@@ -40,7 +39,7 @@ export default function LiveScreen() {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [floaters, setFloaters] = useState<Floater[]>([]);
   const [tally, setTally] = useState<Record<ReactionKind, number>>(EMPTY_TALLY);
-  const [qr, setQr] = useState("");
+  const [qrLoadError, setQrLoadError] = useState(false);
   const [voteUrl, setVoteUrl] = useState("");
 
   // ---- event state (who's walking, the timer) ----
@@ -154,12 +153,10 @@ export default function LiveScreen() {
     return () => { navigator.mediaDevices?.removeEventListener("devicechange", refreshDevices); stopStream(); };
   }, [openCamera, refreshDevices]);
 
-  // ---- QR code for latecomers ----
+  // ---- Static QR image for latecomers ----
   useEffect(() => {
-    const url = window.location.origin;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setVoteUrl(url.replace(/^https?:\/\//, ""));
-    void QRCode.toDataURL(url, { margin: 1, width: 400, color: { dark: "#070305", light: "#ffffff" } }).then(setQr);
+    setVoteUrl(window.location.host);
   }, []);
 
   // ---- hide controls when the mouse is still ----
@@ -194,8 +191,11 @@ export default function LiveScreen() {
         <div className="lv-brand">SCARE <i>to</i> <b>Impress</b></div>
         <div className="lv-top-right">
           <span className="lv-live"><i />LIVE</span>
-          {/* eslint-disable-next-line @next/next/no-img-element -- generated data URL */}
-          {qr && <div className="lv-qr"><img src={qr} alt="QR code to vote" /><span>Scan to vote<br /><b>{voteUrl}</b></span></div>}
+          <div className="lv-qr">
+            {/* eslint-disable-next-line @next/next/no-img-element -- static QR image in public/ */}
+            <img src="/vote-qr.png?v=2" alt="QR code to vote" onError={() => setQrLoadError(true)} />
+            <span>{qrLoadError ? <>QR image missing<br /><b>public/vote-qr.png</b></> : <>Scan to vote<br /><b>{voteUrl}</b></>}</span>
+          </div>
         </div>
       </header>
 
