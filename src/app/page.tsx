@@ -1,69 +1,512 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
+import { createClient } from "@supabase/supabase-js";
+
+type Category = "Scariest" | "Prettiest" | "Funniest" | "Group";
+type Entry = { id: string; contestantName: string; costumeName: string; category: Category };
+type Vote = { entryId: string; score: number };
+type OrganizerResult = { id: string; contestantName: string; costumeName: string; category: Category; votes: number; average: number | null };
+type Mode = "audience" | "organizer";
+type SessionStatus = "waiting" | "voting" | "paused";
+
+function makeUuid() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    return (character === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
+function getVoterKey() {
+  let key = window.localStorage.getItem("cp-voter-key");
+  if (!key) {
+    key = makeUuid();
+    window.localStorage.setItem("cp-voter-key", key);
+  }
+  return key;
+}
+
+const categories: Category[] = ["Scariest", "Prettiest", "Funniest", "Group"];
+const starterEntries: Entry[] = [
+  { id: "s-1", contestantName: "Alex", costumeName: "The Haunted Doll", category: "Scariest" },
+  { id: "s-2", contestantName: "Sam", costumeName: "Midnight Creature", category: "Scariest" },
+  { id: "p-1", contestantName: "Morgan", costumeName: "Moonlit Monarch", category: "Prettiest" },
+  { id: "f-1", contestantName: "Taylor", costumeName: "The Office Goblin", category: "Funniest" },
+  { id: "g-1", contestantName: "The Spooky Squad", costumeName: "The Pumpkin Patch", category: "Group" },
+];
 
 export default function Home() {
+  const [mode, setMode] = useState<Mode>("audience");
+  const [entries, setEntries] = useState<Entry[]>(starterEntries);
+  const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
+  const [status, setStatus] = useState<SessionStatus>("waiting");
+  const [remaining, setRemaining] = useState(20);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [endsAt, setEndsAt] = useState<string | null>(null);
+  const [remoteMode, setRemoteMode] = useState(false);
+  const [liveAverage, setLiveAverage] = useState(0);
+  const [liveVoteCount, setLiveVoteCount] = useState(0);
+  const [organizerAuthed, setOrganizerAuthed] = useState(false);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [votes, setVotes] = useState<Vote[]>([]);
+  const [organizerResults, setOrganizerResults] = useState<OrganizerResult[]>([]);
+  const amongUsAudio = useRef<HTMLAudioElement | null>(null);
+  const [hasVoted, setHasVoted] = useState(false);
+  const [selectedScore, setSelectedScore] = useState<number | null>(null);
+  const [newContestantName, setNewContestantName] = useState("");
+  const [newCostumeName, setNewCostumeName] = useState("");
+  const [newCategory, setNewCategory] = useState<Category>("Scariest");
+  const [notice, setNotice] = useState("Preview mode · Supabase is not connected yet");
+
+  const currentEntry = entries.find((entry) => entry.id === currentEntryId) ?? null;
+  const entryVotes = votes.filter((vote) => vote.entryId === currentEntryId);
+  const average = entryVotes.length
+    ? entryVotes.reduce((sum, vote) => sum + vote.score, 0) / entryVotes.length
+    : 0;
+  const displayedAverage = remoteMode ? liveAverage : average;
+  const displayedVoteCount = remoteMode ? liveVoteCount : entryVotes.length;
+  const showAverage = (status === "voting" || status === "paused") && remaining > 5;
+  const hideAverageForCountdown = status === "voting" && remaining <= 5;
+  const finishedCount = useMemo(() => new Set(votes.map((vote) => vote.entryId)).size, [votes]);
+
+  function getEntryResult(entryId: string) {
+    if (remoteMode) return organizerResults.find((result) => result.id === entryId) ?? null;
+    const entryVotes = votes.filter((vote) => vote.entryId === entryId);
+    return { votes: entryVotes.length, average: entryVotes.length ? entryVotes.reduce((sum, vote) => sum + vote.score, 0) / entryVotes.length : null };
+  }
+
+  function playAmongUsSfx() {
+    const audio = amongUsAudio.current;
+    if (!audio) return;
+    audio.currentTime = 0;
+    void audio.play().catch(() => undefined);
+  }
+
+  const loadOrganizerResults = useCallback(async () => {
+    const response = await fetch("/api/organizer/results", { cache: "no-store" });
+    if (!response.ok) return;
+    const result = await response.json();
+    setOrganizerResults(result.results ?? []);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let realtimeChannel: ReturnType<ReturnType<typeof createClient>["channel"]> | null = null;
+    const loadState = async () => {
+      try {
+        const voterKey = getVoterKey();
+        const response = await fetch(`/api/state?voterKey=${encodeURIComponent(voterKey)}`, { cache: "no-store" });
+        const state = await response.json();
+        if (!response.ok || !state.configured || cancelled) return false;
+        setRemoteMode(true);
+        setNotice("Connected · live event state");
+        setEntries(state.entries);
+        setCurrentEntryId(state.control.current_entry_id);
+        setStatus(state.control.status);
+        setSessionId(state.control.session_id);
+        setEndsAt(state.control.ends_at);
+        setRemaining(Math.ceil((state.control.remaining_ms ?? 0) / 1000));
+        setHasVoted(Boolean(state.hasVoted));
+        setLiveAverage(state.average ?? 0);
+        setLiveVoteCount(state.voteCount ?? 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    void loadState().then((connected) => {
+      if (!connected || cancelled) return;
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+      if (!url || !key) return;
+      const supabase = createClient(url, key);
+      realtimeChannel = supabase
+        .channel("costume-party-live", { config: { private: false } })
+        .on("broadcast", { event: "state_updated" }, ({ payload }) => {
+          setCurrentEntryId(payload.current_entry_id ?? null);
+          setStatus(payload.status);
+          setSessionId(payload.session_id ?? null);
+          setEndsAt(payload.ends_at ?? null);
+          setRemaining(payload.status === "paused" ? Math.ceil((payload.paused_remaining_ms ?? 0) / 1000) : 20);
+          setHasVoted(false);
+          setSelectedScore(null);
+          setLiveAverage(0);
+          setLiveVoteCount(0);
+          setNotice(payload.status === "voting" ? "A costume is live · cast your vote" : payload.status === "paused" ? "Voting paused by organizer" : "Waiting for the next costume");
+        })
+        .on("broadcast", { event: "votes_updated" }, ({ payload }) => {
+          setLiveAverage(Number(payload.average ?? 0));
+          setLiveVoteCount(Number(payload.vote_count ?? 0));
+          setOrganizerResults((previous) => previous.map((result) => result.id === payload.entry_id
+            ? { ...result, average: Number(payload.average ?? 0), votes: Number(payload.vote_count ?? 0) }
+            : result));
+        })
+        .on("broadcast", { event: "entries_updated" }, () => { void loadState(); })
+        .subscribe((connectionStatus) => {
+          if (connectionStatus === "SUBSCRIBED") void loadState();
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      if (realtimeChannel) void realtimeChannel.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (status !== "voting") return;
+    const timer = window.setInterval(() => {
+      if (remoteMode && endsAt) {
+        const nextRemaining = Math.max(0, Math.ceil((Date.parse(endsAt) - Date.now()) / 1000));
+        setRemaining(nextRemaining);
+        if (nextRemaining === 0) {
+          setStatus("waiting");
+          setHasVoted(false);
+          setNotice("Voting closed. Waiting for the organizer to start the next costume.");
+          if (organizerAuthed) void loadOrganizerResults();
+        }
+      } else {
+        setRemaining((seconds) => {
+          if (seconds <= 1) {
+            setStatus("waiting");
+            setHasVoted(false);
+            setNotice("Voting closed. Waiting for the organizer to start the next costume.");
+            return 0;
+          }
+          return seconds - 1;
+        });
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [status, remoteMode, endsAt, organizerAuthed, loadOrganizerResults]);
+
+  async function apiAction(action: string, entryId?: string) {
+    setActionError("");
+    const response = await fetch("/api/organizer/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, entryId }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Could not update the session.");
+    return result.control;
+  }
+
+  async function startEntry(entry: Entry) {
+    if (remoteMode) {
+      try {
+        const control = await apiAction("start", entry.id);
+        setCurrentEntryId(control.current_entry_id);
+        setSessionId(control.session_id);
+        setEndsAt(control.ends_at);
+        setRemaining(20);
+        setHasVoted(false);
+        setSelectedScore(null);
+        setStatus("voting");
+        setNotice(`Now voting: ${entry.contestantName} as ${entry.costumeName}`);
+      } catch (error) { setActionError(error instanceof Error ? error.message : "Could not start voting."); }
+      return;
+    }
+    setCurrentEntryId(entry.id);
+    setRemaining(20);
+    setHasVoted(false);
+    setSelectedScore(null);
+    setStatus("voting");
+    setEndsAt(null);
+    setNotice(`Now voting: ${entry.contestantName} as ${entry.costumeName}`);
+  }
+
+  async function submitVote(score: number) {
+    if (!currentEntry || status !== "voting" || hasVoted) return;
+    if (remoteMode) {
+      setHasVoted(true);
+      const response = await fetch("/api/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId: currentEntry.id, sessionId, voterKey: getVoterKey(), score }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (response.status === 409 && result.error?.includes("already voted")) {
+          setNotice("Vote already recorded for this costume.");
+          return;
+        }
+        setHasVoted(false);
+        setActionError(result.error ?? "Could not save your vote.");
+        return;
+      }
+      setSelectedScore(score);
+      if (typeof result.average === "number") setLiveAverage(result.average);
+      if (typeof result.voteCount === "number") setLiveVoteCount(result.voteCount);
+      setNotice("Your vote is in. Thanks for keeping it spooky and fair.");
+      return;
+    }
+    setVotes((previous) => [...previous, { entryId: currentEntry.id, score }]);
+    setHasVoted(true);
+    setSelectedScore(score);
+  }
+
+  async function pauseOrResume() {
+    if (remoteMode) {
+      try {
+        const control = await apiAction(status === "voting" ? "pause" : "resume");
+        setStatus(control.status);
+        setEndsAt(control.ends_at);
+        setRemaining(control.status === "paused" ? Math.ceil((control.paused_remaining_ms ?? 0) / 1000) : Math.ceil((Date.parse(control.ends_at) - Date.now()) / 1000));
+        setNotice(control.status === "paused" ? "Voting paused. The timer is frozen." : "Voting resumed.");
+      } catch (error) { setActionError(error instanceof Error ? error.message : "Could not pause or resume."); }
+      return;
+    }
+    if (status === "voting") {
+      setStatus("paused");
+      setNotice("Voting paused. The timer is frozen.");
+    } else if (status === "paused") {
+      setStatus("voting");
+      setNotice("Voting resumed.");
+    }
+  }
+
+  async function stopSession() {
+    if (remoteMode) {
+      try {
+        await apiAction("stop");
+        if (organizerAuthed) await loadOrganizerResults();
+        setStatus("waiting");
+        setCurrentEntryId(null);
+        setSessionId(null);
+        setEndsAt(null);
+        setRemaining(20);
+        setHasVoted(false);
+      setSelectedScore(null);
+        setNotice("Waiting for the organizer to start the next costume.");
+      } catch (error) { setActionError(error instanceof Error ? error.message : "Could not end session."); }
+      return;
+    }
+    setStatus("waiting");
+    setCurrentEntryId(null);
+    setRemaining(20);
+    setHasVoted(false);
+    setNotice("Waiting for the organizer to start the next costume.");
+  }
+
+  async function addEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const contestantName = newContestantName.trim();
+    const costumeName = newCostumeName.trim();
+    if (!contestantName || !costumeName) return;
+    if (remoteMode) {
+      setActionError("");
+      const response = await fetch("/api/organizer/entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contestantName, costumeName, category: newCategory }),
+      });
+      const result = await response.json();
+      if (!response.ok) { setActionError(result.error ?? "Could not add the contestant."); return; }
+      setEntries((previous) => [...previous, result.entry]);
+      setOrganizerResults((previous) => [...previous, { ...result.entry, votes: 0, average: null }]);
+      setNewContestantName("");
+      setNewCostumeName("");
+      setNotice(`${contestantName} as ${costumeName} added to ${newCategory}.`);
+      return;
+    }
+    const entry = { id: crypto.randomUUID(), contestantName, costumeName, category: newCategory };
+    setEntries((previous) => [...previous, entry]);
+    setNewContestantName("");
+    setNewCostumeName("");
+    setNotice(`${contestantName} as ${costumeName} added to ${newCategory}.`);
+  }
+
+  async function deleteEntry(entry: Entry) {
+    const displayName = `${entry.contestantName} as ${entry.costumeName}`;
+    const confirmed = window.confirm(`Delete ${displayName}? This also permanently deletes all votes for this costume.`);
+    if (!confirmed) return;
+    setActionError("");
+    if (remoteMode) {
+      const response = await fetch("/api/organizer/entries", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId: entry.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) { setActionError(result.error ?? "Could not delete the costume."); return; }
+    }
+    setEntries((previous) => previous.filter((candidate) => candidate.id !== entry.id));
+    setOrganizerResults((previous) => previous.filter((candidate) => candidate.id !== entry.id));
+    setVotes((previous) => previous.filter((vote) => vote.entryId !== entry.id));
+    if (currentEntryId === entry.id) {
+      setCurrentEntryId(null);
+      setStatus("waiting");
+      setHasVoted(false);
+      setSelectedScore(null);
+    }
+    setNotice(`${displayName} deleted.`);
+  }
+
+  async function openOrganizer() {
+    setMode("organizer");
+    setLoginError("");
+    if (!remoteMode) return;
+    const response = await fetch("/api/organizer/results", { cache: "no-store" });
+    setOrganizerAuthed(response.ok);
+    if (response.ok) {
+      const result = await response.json();
+      setOrganizerResults(result.results ?? []);
+    }
+  }
+
+  async function signInOrganizer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginError("");
+    const response = await fetch("/api/organizer/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: loginPassword }),
+    });
+    const result = await response.json();
+    if (!response.ok) { setLoginError(result.error ?? "Could not sign in."); return; }
+    setOrganizerAuthed(true);
+    setLoginPassword("");
+    await loadOrganizerResults();
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <main className="party-shell">
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
+
+      <header className="topbar">
+        <a className="brand" href="#home" aria-label="Costume Party home">
+          <span className="brand-mark">🎃</span>
+          <span>Costume <b>Party</b></span>
+        </a>
+        <div className="connection-pill"><span className="status-dot" /> {notice}</div>
+        <nav className="mode-switch" aria-label="Preview mode">
+          <button className={mode === "audience" ? "selected" : ""} onClick={() => setMode("audience")}>Audience</button>
+          <button className={mode === "organizer" ? "selected" : ""} onClick={() => void openOrganizer()}>Organizer</button>
+        </nav>
+      </header>
+
+      {mode === "audience" ? (
+        <section className="audience-view" id="home">
+          <div className="eyebrow"><span className="eyebrow-line" /> HALLOWEEN COSTUME WALK <span className="eyebrow-line" /></div>
+          {status === "waiting" || !currentEntry ? (
+            <div className="waiting-card">
+              <div className="orbit orbit-a" /><div className="orbit orbit-b" />
+              <div className="moon">☾</div>
+              <div className="waiting-copy">
+                <span className="small-label">YOU’RE IN THE RIGHT PLACE</span>
+                <h1>Plz wait,<br /><em>tiny human.</em></h1>
+                <p className="wait-joke">Here’s an Among Us for your attention span.</p>
+                <p className="instruction">When a costume appears, tap <b>1–5 pumpkins</b> to rate it. You get one vote per costume.</p>
+                <div className="waiting-state"><span className="pulse-dot" /> Waiting for the next costume…</div>
+              </div>
+              <button className="crewmate-placeholder" type="button" onClick={playAmongUsSfx} aria-label="Tap the Among Us character to play a sound">
+                <Image src="/Red%20Among%20Us%20Character.png" alt="Among Us character" width={2000} height={2000} />
+                <span className="crew-star">✦</span><span className="crew-spark">✧</span>
+              </button>
+              <div className="card-bottom-note"><span>NO APP NEEDED</span><span>·</span><span>JUST ONE TAP</span><span>·</span><span>BE NICE 👻</span></div>
+            </div>
+          ) : (
+            <div className="vote-card">
+              <div className="vote-topline"><span className={`category-chip ${currentEntry.category.toLowerCase()}`}>{currentEntry.category}</span><span className={`vote-clock ${remaining <= 5 ? "urgent" : ""}`} aria-label={`${remaining} seconds remaining`}><small>TIME LEFT</small><b>00:{String(remaining).padStart(2, "0")}</b></span></div>
+              <div className="vote-heading">
+                <div className="vote-title">
+                  <p><span className="contestant-highlight">{currentEntry.contestantName}</span> <i>as</i></p>
+                  <h1><span className="costume-highlight">{currentEntry.costumeName}</span></h1>
+                </div>
+              </div>
+              <div className={`average-stage ${showAverage ? "" : "average-hidden"}`} aria-live="polite">
+                <div className="average-score">
+                  <small>LIVE AVERAGE</small>
+                  <div><strong>{showAverage ? displayedVoteCount ? displayedAverage.toFixed(2) : "—.--" : "—.--"}</strong><span>/ 5</span></div>
+                </div>
+                <div className="average-meter" role="meter" aria-hidden={!showAverage} aria-valuemin={0} aria-valuemax={5} aria-valuenow={showAverage && displayedVoteCount ? displayedAverage : 0} aria-label={showAverage && displayedVoteCount ? `Average score ${displayedAverage.toFixed(2)} out of 5` : undefined}>
+                  <span className="average-meter-fill" style={{ height: showAverage ? `${Math.max(0, Math.min(100, (displayedAverage / 5) * 100))}%` : "0%" }} />
+                </div>
+                {hideAverageForCountdown && <div className="average-cover"><span>🔒</span><b>FINAL 5 SECONDS</b><small>Live average hidden</small></div>}
+              </div>
+              <div className="score-panel">
+                <div className="score-prompt"><b>CHOOSE YOUR SCORE</b><small>1 = LOW <i>·</i> 5 = HIGH</small></div>
+                <div className="score-row" aria-label="Choose a score from one to five pumpkins">
+                  {[1, 2, 3, 4, 5].map((score) => (
+                    <button key={score} className={`pumpkin-button ${selectedScore === score ? "selected" : ""} ${hasVoted ? "locked" : ""}`} onClick={() => submitVote(score)} disabled={hasVoted || status !== "voting"} aria-label={`Score ${score} out of 5`}>
+                      <span>🎃</span><small>{score}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {hasVoted && <div className="thank-you"><span>🕯️</span><div><b>Vote saved</b></div></div>}
+              <div className="live-footer">
+                <div className="vote-count"><small>VOTES</small><b>{displayedVoteCount}</b></div>
+              </div>
+              {status === "paused" && <div className="pause-overlay"><span>Ⅱ</span><b>Voting paused</b><small>Please wait for the organizer.</small></div>}
+            </div>
+          )}
+          <div className="category-rail" aria-label="Costume categories">{categories.map((category) => <span key={category} className={`rail-category ${currentEntry?.category === category ? "active" : ""}`}><i>{currentEntry?.category === category ? "✦" : "·"}</i>{category}</span>)}</div>
+        </section>
+      ) : (
+        <section className="organizer-view">
+          <div className="organizer-intro"><div><span className="small-label">CONTROL ROOM</span><h1>Organizer <em>desk</em></h1><p>Run the walk one costume at a time.</p></div><div className="preview-badge"><span /> {remoteMode ? organizerAuthed ? "ORGANIZER SIGNED IN" : "SIGN-IN REQUIRED" : "PREVIEW CONTROLS"}</div></div>
+          {remoteMode && !organizerAuthed ? (
+            <div className="organizer-grid"><div className="control-card login-card"><span className="small-label">PRIVATE ORGANIZER ACCESS</span><h2>Sign in to run the event</h2><p>Enter the organizer password configured on the MacBook.</p><form className="add-form" onSubmit={signInOrganizer}><label htmlFor="organizer-password">Password</label><input id="organizer-password" type="password" autoComplete="current-password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} /><button className="primary-control" type="submit">Unlock controls</button>{loginError && <p className="form-error">{loginError}</p>}</form></div></div>
+          ) : <div className="organizer-grid">
+            <div className="control-card">
+              <div className="card-heading"><div><span className="small-label">CURRENT SESSION</span><h2>{currentEntry ? <>{currentEntry.contestantName} <i>as</i> {currentEntry.costumeName}</> : "Waiting to begin"}</h2></div><span className={`session-status ${status}`}>{status}</span></div>
+              <div className="control-current">
+                <div className="session-category">{currentEntry ? <span className={`category-chip ${currentEntry.category.toLowerCase()}`}>{currentEntry.category}</span> : <span className="category-chip">No active costume</span>}</div>
+                <div className="big-timer">00:{String(remaining).padStart(2, "0")}<small> seconds</small></div>
+                <div className="organizer-stats"><div><small>AVERAGE SCORE</small><b>{displayedVoteCount ? displayedAverage.toFixed(2) : "—"}<span> / 5</span></b></div><div><small>VOTES RECEIVED</small><b>{displayedVoteCount}</b></div></div>
+              </div>
+              <div className="control-buttons">
+                {status === "voting" || status === "paused" ? <button className="secondary-control" onClick={() => void pauseOrResume()}>{status === "paused" ? "▶  Resume voting" : "Ⅱ  Pause voting"}</button> : <button className="primary-control" onClick={() => void stopSession()} disabled={!currentEntry}>■  End session</button>}
+                {status !== "voting" && status !== "paused" && <span className="control-hint">Choose a contestant below to start a 20-second round.</span>}
+              </div>
+              {actionError && <p className="form-error">{actionError}</p>}
+              <p className="organizer-note">The audience sees the average live until the last 5 seconds. Final scores stay out of their view.</p>
+            </div>
+
+            <div className="add-card">
+              <div className="card-heading"><div><span className="small-label">QUICK ADD</span><h2>Add a costume</h2></div><span className="sparkle-icon">✦</span></div>
+              <form onSubmit={(event) => void addEntry(event)} className="add-form">
+                <label htmlFor="contestant-name">Contestant name</label>
+                <input id="contestant-name" value={newContestantName} onChange={(event) => setNewContestantName(event.target.value)} placeholder="e.g. Alex Smith" maxLength={60} required />
+                <label htmlFor="costume-name">Costume name</label>
+                <input id="costume-name" value={newCostumeName} onChange={(event) => setNewCostumeName(event.target.value)} placeholder="e.g. The Velvet Vampire" maxLength={60} required />
+                <label htmlFor="category">Category</label>
+                <select id="category" value={newCategory} onChange={(event) => setNewCategory(event.target.value as Category)}>{categories.map((category) => <option key={category}>{category}</option>)}</select>
+                <button className="add-button" type="submit">＋ Add contestant</button>
+                {actionError && <p className="form-error">{actionError}</p>}
+              </form>
+            </div>
+
+            <div className="lineup-card">
+              <div className="card-heading"><div><span className="small-label">THE LINEUP</span><h2>Start the next round</h2></div><span className="lineup-count">{entries.length} entries</span></div>
+              <div className="category-groups">
+                {categories.map((category) => {
+                  const group = entries.filter((entry) => entry.category === category);
+                  return <div className="category-group" key={category}><div className="group-heading"><span className={`category-chip ${category.toLowerCase()}`}>{category}</span><span>{group.length} {group.length === 1 ? "costume" : "costumes"}</span></div>
+                    {group.length ? group.map((entry, index) => {
+                      const result = getEntryResult(entry.id);
+                      const isActive = entry.id === currentEntryId && (status === "voting" || status === "paused");
+                      return <div className={`lineup-row ${entry.id === currentEntryId ? "current" : ""}`} key={entry.id}><span className="lineup-number">{String(index + 1).padStart(2, "0")}</span><span className="lineup-name"><b>{entry.contestantName}</b><small> as {entry.costumeName}{entry.id === currentEntryId && " · CURRENT"}</small></span><span className="lineup-result"><b>{result?.average == null ? "—" : result.average.toFixed(2)}</b><small>{result?.votes ?? 0} votes</small></span><button className="start-button" onClick={() => void startEntry(entry)} disabled={status === "voting" || status === "paused"}>{entry.id === currentEntryId && status === "voting" ? "LIVE" : "Start →"}</button><button className="delete-button" type="button" onClick={() => void deleteEntry(entry)} disabled={isActive} title={isActive ? "End or pause this round before deleting the active costume" : `Delete ${entry.contestantName} as ${entry.costumeName}`} aria-label={`Delete ${entry.contestantName} as ${entry.costumeName}`}>Delete</button></div>;
+                    }) : <p className="empty-category">No costumes added yet.</p>}
+                  </div>;
+                })}
+              </div>
+              <p className="lineup-footnote">{finishedCount} {finishedCount === 1 ? "entry has" : "entries have"} received at least one vote in this preview.</p>
+            </div>
+          </div>}
+        </section>
+      )}
+
+      <footer className="page-footer"><span>MADE FOR A LITTLE HALLOWEEN MAGIC</span><span>✦</span><span>ONE VOTE PER COSTUME</span><span className="footer-spacer" /><span>ROOM 13 · COSTUME PARTY</span></footer>
+      <audio ref={amongUsAudio} src="/53b1bab6-a8c3-4a1a-82db-7110ce1c29ef_6KNDGWD.mp3" preload="none" />
+    </main>
   );
 }
