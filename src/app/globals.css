@@ -464,3 +464,19 @@ body { color:#eae3ff; }
 @media (prefers-reduced-motion: reduce) {
   .ticker-track { animation:none; }
 }
+
+/* Scare to Impress: host page links, slot codes, GROUP tag, pumpkin labels */
+.mode-switch a { display:inline-flex; align-items:center; min-height:38px; border-radius:99px; padding:8px 13px; color:#a9a3b7; font-size:11px; text-decoration:none; transition:.2s ease; }
+.mode-switch a.selected { color:#211008; background:linear-gradient(135deg,#ffc56c,#ff8b32); box-shadow:0 2px 14px rgba(255,129,42,.24); }
+.mode-switch a:focus-visible { outline:3px solid #ffe1a1; outline-offset:3px; }
+.contestant-tags { display:flex; gap:8px; margin-bottom:8px; }
+.slot-tag,.group-tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; letter-spacing:.08em; line-height:1.4; white-space:nowrap; }
+.slot-tag { background:#ff9a1f; color:#120904; }
+.group-tag { border:1px solid #ff9a1f; color:#ff9a1f; letter-spacing:.14em; }
+.planned-person .slot-tag,.planned-person .group-tag,.session-category .slot-tag,.session-category .group-tag { margin-right:6px; }
+.ticker-entry .slot-tag,.ticker-entry .group-tag { margin:0 6px; }
+.pumpkin-button em.pumpkin-label { margin-top:3px; color:#ffd59a; font-size:10px; font-style:normal; font-weight:700; line-height:1; white-space:nowrap; }
+.pumpkin-button.selected em.pumpkin-label { color:#fff1d6; }
+.group-check { display:flex; align-items:center; gap:8px; cursor:pointer; }
+.group-check input { width:auto; accent-color:#ff9a1f; }
+.thank-you small { display:block; }

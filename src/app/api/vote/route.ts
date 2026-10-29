@@ -28,25 +28,19 @@ export async function POST(request: Request) {
       return Response.json({ error: "This voting session has ended." }, { status: 409 });
     }
 
-    const { error: insertError } = await supabase.from("costume_votes").insert({
-      entry_id: entryId,
-      voter_key: voterKey,
-      score: Number(score),
-    });
-    if (insertError?.code === "23505") {
-      return Response.json({ error: "You already voted for this costume." }, { status: 409 });
-    }
-    if (insertError) throw insertError;
+    // One row per guest per costume; tapping another pumpkin replaces the score until the timer ends.
+    const { error: upsertError } = await supabase.from("costume_votes").upsert(
+      { entry_id: entryId, voter_key: voterKey, score: Number(score), updated_at: new Date().toISOString() },
+      { onConflict: "entry_id,voter_key" },
+    );
+    if (upsertError) throw upsertError;
 
-    const { data: votes, error: votesError } = await supabase
+    const { count, error: countError } = await supabase
       .from("costume_votes")
-      .select("score")
+      .select("id", { count: "exact", head: true })
       .eq("entry_id", entryId);
-    if (votesError) throw votesError;
-    const count = votes.length;
-    const average = count ? votes.reduce((total, vote) => total + vote.score, 0) / count : 0;
-    const averageIsVisible = Date.parse(control.ends_at) - Date.now() > 5_000;
-    return Response.json({ accepted: true, voteCount: count, average: averageIsVisible ? Number(average.toFixed(2)) : null });
+    if (countError) throw countError;
+    return Response.json({ accepted: true, score: Number(score), voteCount: count ?? 0 });
   } catch (error) {
     console.error("Could not save the vote", error);
     return Response.json({ error: "Could not save your vote. Please try once more." }, { status: 500 });
